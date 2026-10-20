@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import streamlit as st
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 st.set_page_config(page_title="Church Schedule Generator", layout="wide")
 
@@ -21,24 +21,20 @@ if uploaded_members and uploaded_competencies and uploaded_tasks:
     tasks_df = pd.read_csv(uploaded_tasks)
     planning_df = pd.read_csv(uploaded_planning) if uploaded_planning else None
 
-    # Mapping dictionaries for Task ID <-> Task Name
-    # Handles both 'id' and 'name' columns in Tasks.csv
+    # Mappings for Task ID <-> Task Name
     task_id_to_name = dict(zip(tasks_df['id'].astype(str), tasks_df['name'].astype(str)))
-    task_name_to_id = dict(zip(tasks_df['name'].astype(str), tasks_df['id'].astype(str)))
-    
     task_names = tasks_df['name'].dropna().astype(str).tolist()
 
-    # --- SIDEBAR: DATE RANGE & NUMBER OF SABBATHS ---
+    # --- SIDEBAR: PLANNING PERIOD & SETTINGS ---
     st.sidebar.header("2. Planning Period & Settings")
-    st.sidebar.markdown("Set the starting date and select how many Sabbath services to plan (default is 2).")
+    st.sidebar.markdown("Choose start date and how many Sabbath services to generate (1 to 10).")
     
-    start_date = st.sidebar.date_input("Start Date for Planning", value=datetime.now())
+    start_date = st.sidebar.date_input("Start Date", value=date.today())
     num_sabbaths = st.sidebar.slider("Number of Sabbaths to Generate", min_value=1, max_value=10, value=2)
 
     st.sidebar.header("3. Group Rule Configuration")
     st.sidebar.markdown("Define which group takes which tasks on specific Sabbath indices of a month.")
     
-    # Safe defaults checking against available task names
     default_ss = [t for t in ["SSM", "SST", "SS5"] if t in task_names]
     default_cu = [t for t in ["SSM", "SST", "SS5", "CUM", "CUVK", "CUVP", "CUFN", "CUTA", "CUTL"] if t in task_names]
 
@@ -58,9 +54,10 @@ if uploaded_members and uploaded_competencies and uploaded_tasks:
     sabbath_5_tasks = st.sidebar.multiselect("5th Sabbath Group Tasks", options=task_names, default=default_cu)
 
     # --- CALCULATE SABBATH DATES ---
-    def get_next_saturdays(start, count):
-        # Find next Saturday on or after start date
-        cur = start + timedelta(days=(5 - start.weekday()) % 7)
+    def get_next_saturdays(start_dt, count):
+        if isinstance(start_dt, datetime):
+            start_dt = start_dt.date()
+        cur = start_dt + timedelta(days=(5 - start_dt.weekday()) % 7)
         saturdays = []
         while len(saturdays) < count:
             saturdays.append(cur)
@@ -76,8 +73,7 @@ if uploaded_members and uploaded_competencies and uploaded_tasks:
     col1, col2 = st.columns(2)
     for i, sat in enumerate(all_saturdays):
         col = col1 if i % 2 == 0 else col2
-        # Determine Sabbath index within its month
-        first_day_of_month = datetime(sat.year, sat.month, 1)
+        first_day_of_month = date(sat.year, sat.month, 1)
         first_sat = first_day_of_month + timedelta(days=(5 - first_day_of_month.weekday()) % 7)
         sabbath_idx = ((sat - first_sat).days // 7) + 1
 
@@ -89,13 +85,10 @@ if uploaded_members and uploaded_competencies and uploaded_tasks:
     available_members = members_df[members_df['available'] == True]['name'].tolist()
     assignment_counts = {m: {t: 0 for t in task_names} for m in available_members}
 
-    # Populate historical assignment counts if Planning.csv is provided
     if planning_df is not None and not planning_df.empty:
         for _, row in planning_df.iterrows():
             m_name = str(row.get('AssignedMember', '')).strip()
             t_val = str(row.get('Task', '')).strip()
-            
-            # Map task ID to task name if needed
             t_name = task_id_to_name.get(t_val, t_val)
             
             if m_name in assignment_counts and t_name in assignment_counts[m_name]:
@@ -128,17 +121,14 @@ if uploaded_members and uploaded_competencies and uploaded_tasks:
                 if active_group and t_name in group_tasks:
                     assigned_person = active_group
                 else:
-                    # Find competent members for this task
                     competent_member_ids = competencies_df[competencies_df['tasks_id'].astype(str) == t_id]['member_id'].tolist()
                     eligible = members_df[(members_df['id'].isin(competent_member_ids)) & (members_df['available'] == True)]['name'].tolist()
                     
                     if eligible:
-                        # Priority to members with lowest past assignment count for this task
                         eligible_counts = {m: assignment_counts.get(m, {}).get(t_name, 0) for m in eligible}
                         min_count = min(eligible_counts.values())
                         candidates = [m for m, cnt in eligible_counts.items() if cnt == min_count]
                         
-                        # Pick randomly among least assigned candidates to ensure variety
                         assigned_person = np.random.choice(candidates)
                         assignment_counts[assigned_person][t_name] += 1
                     else:
