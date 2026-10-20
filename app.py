@@ -85,7 +85,17 @@ if uploaded_members and uploaded_competencies and uploaded_tasks:
     available_members = members_df[members_df['available'] == True]['name'].tolist()
     assignment_counts = {m: {t: 0 for t in task_names} for m in available_members}
 
+    # Track who was assigned on the last scheduled Sabbath to prevent consecutive Sabbaths if possible
+    last_sabbath_assigned_members = set()
+
     if planning_df is not None and not planning_df.empty:
+        # Find the latest date in history to seed last_sabbath_assigned_members
+        planning_df['parsed_date'] = pd.to_datetime(planning_df['Date'], format='%d/%m/%Y', errors='coerce')
+        if not planning_df['parsed_date'].isna().all():
+            max_date = planning_df['parsed_date'].max()
+            last_sabbath_rows = planning_df[planning_df['parsed_date'] == max_date]
+            last_sabbath_assigned_members = set(last_sabbath_rows['AssignedMember'].dropna().astype(str).str.strip())
+
         for _, row in planning_df.iterrows():
             m_name = str(row.get('AssignedMember', '')).strip()
             t_val = str(row.get('Task', '')).strip()
@@ -114,6 +124,10 @@ if uploaded_members and uploaded_competencies and uploaded_tasks:
             elif s_idx == 5:
                 active_group, group_tasks = sabbath_5_group, sabbath_5_tasks
 
+            # Track members already assigned on THIS specific Sabbath (Rule 1: appear once per schedule)
+            assigned_on_this_sabbath = set()
+            current_sabbath_assignments = set()
+
             for _, task in tasks_df.iterrows():
                 t_id = str(task['id'])
                 t_name = str(task['name'])
@@ -121,16 +135,30 @@ if uploaded_members and uploaded_competencies and uploaded_tasks:
                 if active_group and t_name in group_tasks:
                     assigned_person = active_group
                 else:
+                    # Get competent & available members
                     competent_member_ids = competencies_df[competencies_df['tasks_id'].astype(str) == t_id]['member_id'].tolist()
                     eligible = members_df[(members_df['id'].isin(competent_member_ids)) & (members_df['available'] == True)]['name'].tolist()
                     
                     if eligible:
-                        eligible_counts = {m: assignment_counts.get(m, {}).get(t_name, 0) for m in eligible}
+                        # FILTER 1: Exclude members already assigned on this Sabbath (if possible)
+                        not_yet_assigned = [m for m in eligible if m not in assigned_on_this_sabbath]
+                        pool = not_yet_assigned if not_yet_assigned else eligible
+
+                        # FILTER 2: Exclude members who served on the previous Sabbath (Rule 2: skip successive Sabbaths if possible)
+                        rested_pool = [m for m in pool if m not in last_sabbath_assigned_members]
+                        final_pool = rested_pool if rested_pool else pool
+
+                        # FAIRNESS: Pick member with lowest historical assignment count for this task
+                        eligible_counts = {m: assignment_counts.get(m, {}).get(t_name, 0) for m in final_pool}
                         min_count = min(eligible_counts.values())
                         candidates = [m for m, cnt in eligible_counts.items() if cnt == min_count]
                         
                         assigned_person = np.random.choice(candidates)
+                        
+                        # Record assignment tracking
                         assignment_counts[assigned_person][t_name] += 1
+                        assigned_on_this_sabbath.add(assigned_person)
+                        current_sabbath_assignments.add(assigned_person)
                     else:
                         assigned_person = "Unassigned"
 
@@ -139,6 +167,9 @@ if uploaded_members and uploaded_competencies and uploaded_tasks:
                     "Task": t_name,
                     "AssignedMember": assigned_person
                 })
+            
+            # Update last Sabbath assigned members for the next loop iteration
+            last_sabbath_assigned_members = current_sabbath_assignments
 
         result_df = pd.DataFrame(generated_rows)
         st.success("✨ Schedule successfully generated!")
