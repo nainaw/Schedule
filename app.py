@@ -84,10 +84,7 @@ if uploaded_members and uploaded_competencies and uploaded_tasks:
     # --- HISTORICAL TRACKING & ROTATION INITIALIZATION ---
     available_members = members_df[members_df['available'] == True]['name'].tolist()
     
-    # Track last performed date for each member per task: {member_name: {task_name: datetime_date}}
     last_performed_date = {m: {} for m in available_members}
-    
-    # Track who was assigned on the last scheduled Sabbath
     last_sabbath_assigned_members = set()
 
     if planning_df is not None and not planning_df.empty:
@@ -101,13 +98,13 @@ if uploaded_members and uploaded_competencies and uploaded_tasks:
             m_name = str(row.get('AssignedMember', '')).strip()
             t_val = str(row.get('Task', '')).strip()
             t_name = task_id_to_name.get(t_val, t_val)
-            p_date = row.get('parsed_date')
+            p_date_raw = row.get('parsed_date')
             
-            if m_name in last_performed_date and pd.notna(p_date):
-                # Keep the latest date they performed this task
+            if m_name in last_performed_date and pd.notna(p_date_raw):
+                p_date = pd.to_datetime(p_date_raw).date()
                 current_latest = last_performed_date[m_name].get(t_name)
                 if current_latest is None or p_date > current_latest:
-                    last_performed_date[m_name][t_name] = p_date.date()
+                    last_performed_date[m_name][t_name] = p_date
 
     # --- GENERATION LOGIC ---
     if st.button("🚀 Generate Schedule"):
@@ -129,14 +126,13 @@ if uploaded_members and uploaded_competencies and uploaded_tasks:
             elif s_idx == 5:
                 active_group, group_tasks = sabbath_5_group, sabbath_5_tasks
 
-            # 1. Calculate scarcity (number of capable available members) for each task on this Sabbath
+            # 1. Calculate scarcity for each task
             task_scarcity = []
             for _, task in tasks_df.iterrows():
                 t_id = str(task['id'])
                 t_name = str(task['name'])
                 
                 if active_group and t_name in group_tasks:
-                    # Group tasks don't compete with individual member pools
                     competent_count = 0
                 else:
                     competent_member_ids = competencies_df[competencies_df['tasks_id'].astype(str) == t_id]['member_id'].tolist()
@@ -145,10 +141,9 @@ if uploaded_members and uploaded_competencies and uploaded_tasks:
                 
                 task_scarcity.append((task, competent_count))
 
-            # 2. Sort tasks by scarcity: fewest capable members first (Most Constrained First)
+            # 2. Sort tasks by scarcity (rarest tasks filled first)
             task_scarcity.sort(key=lambda x: x[1])
 
-            # Track members assigned on THIS specific Sabbath
             assigned_on_this_sabbath = set()
             current_sabbath_assignments = set()
             sabbath_schedule = {}
@@ -164,29 +159,23 @@ if uploaded_members and uploaded_competencies and uploaded_tasks:
                     eligible = members_df[(members_df['id'].isin(competent_member_ids)) & (members_df['available'] == True)]['name'].tolist()
                     
                     if eligible:
-                        # Rule 1: Exclude members already assigned on this Sabbath (if possible)
                         not_yet_assigned = [m for m in eligible if m not in assigned_on_this_sabbath]
                         pool = not_yet_assigned if not_yet_assigned else eligible
 
-                        # Rule 2: Exclude members who served on the previous Sabbath (if possible)
                         rested_pool = [m for m in pool if m not in last_sabbath_assigned_members]
                         final_pool = rested_pool if rested_pool else pool
 
-                        # Fairness & Pool-size spacing: Prioritize members who performed this task longest ago (or never)
-                        # Members with no recorded past history for this task get highest priority (oldest date = year 2000)
                         default_old_date = date(2000, 1, 1)
                         member_last_dates = {
                             m: last_performed_date.get(m, {}).get(t_name, default_old_date) 
                             for m in final_pool
                         }
                         
-                        # Find the oldest date among candidates (meaning they went the longest without doing this task)
                         oldest_date = min(member_last_dates.values())
                         candidates = [m for m, d in member_last_dates.items() if d == oldest_date]
                         
                         assigned_person = np.random.choice(candidates)
                         
-                        # Update tracking
                         last_performed_date[assigned_person][t_name] = sat
                         assigned_on_this_sabbath.add(assigned_person)
                         current_sabbath_assignments.add(assigned_person)
@@ -195,7 +184,6 @@ if uploaded_members and uploaded_competencies and uploaded_tasks:
 
                 sabbath_schedule[t_name] = assigned_person
 
-            # Preserve original task order for the output table
             for _, task in tasks_df.iterrows():
                 t_name = str(task['name'])
                 generated_rows.append({
