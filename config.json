@@ -1,0 +1,51 @@
+{
+    "start_date": "2026-10-22",
+    "num_sabbaths": 2,
+    "elder_sabbath_choice": 2,
+    "s1": {
+        "group": "Tanora Zokiny",
+        "tasks": [
+            "SSM",
+            "SST",
+            "SS5"
+        ]
+    },
+    "s2": {
+        "group": "Zatovo",
+        "tasks": [
+            "SSM",
+            "SST",
+            "SS5"
+        ]
+    },
+    "s3": {
+        "group": "Lehibe I",
+        "tasks": [
+            "SSM",
+            "SST",
+            "SS5"
+        ]
+    },
+    "s4": {
+        "group": "Lehibe II",
+        "tasks": [
+            "SSM",
+            "SST",
+            "SS5"
+        ]
+    },
+    "s5": {
+        "group": "MINENF",
+        "tasks": [
+            "SSM",
+            "SST",
+            "SS5",
+            "CUM",
+            "CUVK",
+            "CUVP",
+            "CUFN",
+            "CUTA",
+            "CUTL"
+        ]
+    }
+}
