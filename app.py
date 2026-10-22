@@ -98,16 +98,13 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
 
     st.sidebar.header("2. Special Rules Configuration")
     elder_options = [1, 2, 3, 4, 5]
-    saved_elder_choice = config_data.get("elder_sabbath_choice", 2)
-    try:
-        elder_default_index = elder_options.index(saved_elder_choice)
-    except ValueError:
-        elder_default_index = 1
+    if "elder_sabbath_select" not in st.session_state:
+        saved_elder_choice = config_data.get("elder_sabbath_choice", 2)
+        st.session_state["elder_sabbath_select"] = saved_elder_choice if saved_elder_choice in elder_options else 2
 
     elder_sabbath_choice = st.sidebar.selectbox(
         "Reserve CUTL for Elder on which Sabbath of Trimester Start Months?",
         options=elder_options,
-        index=elder_default_index,
         key="elder_sabbath_select"
     )
 
@@ -248,7 +245,6 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                     eligible_df = members_df[(members_df['id'].isin(competent_member_ids)) & (members_df['available'] == True)]
                     
                     is_trimester_start_month = sat.month in [1, 4, 7, 10]
-                    # Direct comparison with elder_sabbath_choice value (1, 2, 3, 4, or 5)
                     if t_name == "CUTL" and is_trimester_start_month and s_idx == elder_sabbath_choice:
                         if 'Elder' in members_df.columns:
                             elder_filter = members_df['Elder'].astype(str).str.upper().isin(['TRUE', 'YES', '1'])
