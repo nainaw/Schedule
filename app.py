@@ -54,7 +54,7 @@ def push_file_to_github(file_path, content_str, commit_message):
 
 # --- AUTO-PUBLISH PUBLIC HTML PAGE FOR GITHUB PAGES ---
 def publish_public_schedule_page(planning_df, num_latest=3):
-    """Generates a gorgeous, mobile-friendly card layout index.html matching the church's preferred design."""
+    """Generates a gorgeous, mobile-friendly card layout index.html with sticky date headers."""
     if planning_df is None or planning_df.empty:
         return
     
@@ -76,7 +76,6 @@ def publish_public_schedule_page(planning_df, num_latest=3):
 
     filtered_plan = valid_plan[valid_plan['parsed_date'].dt.date.isin(latest_dates_slice)]
     
-    # Build gorgeous individual Sabbath cards matching the reference image style
     sabbath_cards_html = ""
     for d in sorted(latest_dates_slice):
         date_str = d.strftime('%d/%m/%Y')
@@ -153,22 +152,27 @@ def publish_public_schedule_page(planning_df, num_latest=3):
             background: white;
             border-radius: 12px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-            margin-bottom: 30px;
-            overflow: hidden;
+            margin-bottom: 35px;
             border: 1px solid #e1e8ed;
         }}
         .card-date-header {{
-            background-color: #f8fafc;
+            position: sticky;
+            top: 10px;
+            z-index: 10;
+            background-color: #ffffff;
             color: #2980b9;
             padding: 16px;
             text-align: center;
             font-size: 20px;
             font-weight: 700;
             border-bottom: 2px solid #edf2f7;
+            border-top-left-radius: 12px;
+            border-top-right-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.03);
             letter-spacing: 0.5px;
         }}
         .card-body {{
-            padding: 0 20px;
+            padding: 0 20px 10px 20px;
         }}
         .schedule-row {{
             display: flex;
@@ -204,6 +208,7 @@ def publish_public_schedule_page(planning_df, num_latest=3):
             .btn-print {{ display: none; }}
             body {{ background-color: white; padding: 0; }}
             .sabbath-card {{ box-shadow: none; border: 1px solid #ccc; }}
+            .card-date-header {{ position: static; box-shadow: none; }}
         }}
     </style>
 </head>
@@ -222,7 +227,7 @@ def publish_public_schedule_page(planning_df, num_latest=3):
 </body>
 </html>
 """
-    push_file_to_github("index.html", html_content, "Auto-publish gorgeous mobile-friendly index.html")
+    push_file_to_github("index.html", html_content, "Auto-publish index.html with sticky date headers")
 
 # --- SIDEBAR: REFRESH & QUICK ACTIONS ---
 st.sidebar.header("🛠️ System Controls")
