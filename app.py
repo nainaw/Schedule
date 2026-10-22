@@ -98,13 +98,22 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
 
     st.sidebar.header("2. Special Rules Configuration")
     elder_options = [1, 2, 3, 4, 5]
+    
+    # Defensive session state cleanup to prevent StreamlitValueOutOfRangeError
+    if "elder_sabbath_select" in st.session_state and st.session_state["elder_sabbath_select"] not in elder_options:
+        del st.session_state["elder_sabbath_select"]
+
+    saved_elder_choice = config_data.get("elder_sabbath_choice", 2)
+    if saved_elder_choice not in elder_options:
+        saved_elder_choice = 2
+
     if "elder_sabbath_select" not in st.session_state:
-        saved_elder_choice = config_data.get("elder_sabbath_choice", 2)
-        st.session_state["elder_sabbath_select"] = saved_elder_choice if saved_elder_choice in elder_options else 2
+        st.session_state["elder_sabbath_select"] = saved_elder_choice
 
     elder_sabbath_choice = st.sidebar.selectbox(
         "Reserve CUTL for Elder on which Sabbath of Trimester Start Months?",
         options=elder_options,
+        index=elder_options.index(st.session_state["elder_sabbath_select"]),
         key="elder_sabbath_select"
     )
 
