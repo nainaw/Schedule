@@ -54,11 +54,16 @@ def push_file_to_github(file_path, content_str, commit_message):
 
 
 # --- AUTO-PUBLISH PUBLIC HTML PAGE FOR GITHUB PAGES ---
-def publish_public_schedule_page(planning_df, num_latest=3):
-    """Generates a gorgeous, mobile-friendly card layout index.html with sticky date headers."""
+def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
+    """Generates a gorgeous, mobile-friendly card layout index.html with task descriptions and sticky date headers."""
     if planning_df is None or planning_df.empty:
         return
     
+    # Map short task codes to full descriptions
+    task_desc_map = {}
+    if tasks_df is not None and 'name' in tasks_df.columns and 'description' in tasks_df.columns:
+        task_desc_map = dict(zip(tasks_df['name'].astype(str), tasks_df['description'].fillna(tasks_df['name']).astype(str)))
+
     df = planning_df.copy()
     df['parsed_date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y', errors='coerce')
     valid_plan = df.dropna(subset=['parsed_date']).sort_values(by='parsed_date')
@@ -84,9 +89,12 @@ def publish_public_schedule_page(planning_df, num_latest=3):
         
         rows_html = ""
         for _, row in day_df.iterrows():
+            t_code = str(row['Task']).strip()
+            t_display = task_desc_map.get(t_code, t_code) # Uses full description if available
+            
             rows_html += f"""
             <div class="schedule-row">
-                <span class="task-name">{row['Task']}</span>
+                <span class="task-name">{t_display}</span>
                 <span class="member-name">{row['AssignedMember']}</span>
             </div>
             """
@@ -228,7 +236,7 @@ def publish_public_schedule_page(planning_df, num_latest=3):
 </body>
 </html>
 """
-    push_file_to_github("index.html", html_content, "Auto-publish index.html with sticky date headers")
+    push_file_to_github("index.html", html_content, "Auto-publish index.html with task descriptions and sticky date headers")
 
 
 # --- SIDEBAR: REFRESH & QUICK ACTIONS ---
@@ -306,7 +314,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
     sabbath_2_group = st.sidebar.text_input("2nd Sabbath Group", value=s2["group"], key="s2_g")
     sabbath_2_tasks = st.sidebar.multiselect("2nd Sabbath Group Tasks", options=task_names, default=[t for t in s2["tasks"] if t in task_names], key="s2_t")
 
-    sabbath_3_group = st.sidebar.text_input("3rd Sabbath Group (Note: Overridden by Youth Rule)", value=s3["group"], key="s3_g")
+    sabbath_3_group = st.sidebar.text_input("3rd Sabbath Group (Lehibe I for SSM, SST, SS5)", value=s3["group"], key="s3_g")
     sabbath_3_tasks = st.sidebar.multiselect("3rd Sabbath Group Tasks", options=task_names, default=[t for t in s3["tasks"] if t in task_names], key="s3_t")
 
     sabbath_4_group = st.sidebar.text_input("4th Sabbath Group", value=s4["group"], key="s4_g")
@@ -421,8 +429,8 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                     elif s_idx == 2:
                         active_group, group_tasks = sabbath_2_group, sabbath_2_tasks
                     elif s_idx == 3:
-                        # 3rd Sabbath rule: All participants must be Youth members (no group name string)
-                        active_group, group_tasks = None, []
+                        # 3rd Sabbath: Lehibe I handles specified tasks (SSM, SST, SS5)
+                        active_group, group_tasks = sabbath_3_group, sabbath_3_tasks
                     elif s_idx == 4:
                         active_group, group_tasks = sabbath_4_group, sabbath_4_tasks
                     elif s_idx == 5:
@@ -433,13 +441,13 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                         t_id = str(task['id'])
                         t_name = str(task['name'])
                         
-                        if s_idx != 3 and active_group and t_name in group_tasks:
+                        if active_group and t_name in group_tasks:
                             competent_count = 0
                         else:
                             competent_member_ids = competencies_df[competencies_df['tasks_id'].astype(str) == t_id]['member_id'].tolist()
                             eligible = members_df[(members_df['id'].isin(competent_member_ids)) & (members_df['available'] == True)]
                             
-                            # Restrict to Youth if 3rd Sabbath
+                            # Restrict remaining individual tasks to Youth if 3rd Sabbath
                             if s_idx == 3 and 'Youth' in members_df.columns:
                                 youth_mask = members_df['Youth'].astype(str).str.upper().isin(['TRUE', 'YES', '1']) | (members_df['Youth'] == True)
                                 eligible = eligible[youth_mask]
@@ -458,13 +466,13 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                         t_id = str(task['id'])
                         t_name = str(task['name'])
                         
-                        if s_idx != 3 and active_group and t_name in group_tasks:
+                        if active_group and t_name in group_tasks:
                             assigned_person = active_group
                         else:
                             competent_member_ids = competencies_df[competencies_df['tasks_id'].astype(str) == t_id]['member_id'].tolist()
                             eligible_df = members_df[(members_df['id'].isin(competent_member_ids)) & (members_df['available'] == True)]
                             
-                            # Restrict to Youth if 3rd Sabbath
+                            # Restrict remaining individual tasks to Youth if 3rd Sabbath
                             if s_idx == 3 and 'Youth' in members_df.columns:
                                 youth_mask = members_df['Youth'].astype(str).str.upper().isin(['TRUE', 'YES', '1']) | (members_df['Youth'] == True)
                                 eligible_df = eligible_df[youth_mask]
@@ -529,8 +537,8 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                     # 1. Update Planning.csv
                     success_csv = push_file_to_github("Planning.csv", updated_planning_df.to_csv(index=False), "Auto-update Planning.csv with new Sabbaths")
                     
-                    # 2. Automatically publish index.html for GitHub Pages
-                    publish_public_schedule_page(updated_planning_df, num_latest=num_sabbaths)
+                    # 2. Automatically publish index.html for GitHub Pages (passing tasks_df for task descriptions)
+                    publish_public_schedule_page(updated_planning_df, tasks_df, num_latest=num_sabbaths)
 
                     if success_csv:
                         st.balloons()
@@ -563,7 +571,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                 with st.spinner(f"Pushing {dataset_choice} update to GitHub..."):
                     success = push_file_to_github(dataset_choice, csv_string, f"Manual CRUD update on {dataset_choice}")
                     if dataset_choice == "Planning.csv" and success:
-                        publish_public_schedule_page(edited_df, num_latest=num_sabbaths)
+                        publish_public_schedule_page(edited_df, tasks_df, num_latest=num_sabbaths)
 
                     if success:
                         st.success(f"✅ Successfully updated {dataset_choice} in GitHub!")
