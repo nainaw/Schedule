@@ -53,6 +53,71 @@ def push_file_to_github(file_path, content_str, commit_message):
     return res.status_code in [200, 201]
 
 
+# --- AUTO-PUBLISH PUBLIC HTML PAGE FOR GITHUB PAGES ---
+def publish_public_schedule_page(planning_df, num_latest=3):
+    """Generates a clean HTML index.html for members and pushes it to GitHub."""
+    if planning_df is None or planning_df.empty:
+        return
+    
+    df = planning_df.copy()
+    df['parsed_date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y', errors='coerce')
+    valid_plan = df.dropna(subset=['parsed_date']).sort_values(by='parsed_date')
+    unique_dates = valid_plan['parsed_date'].dt.date.unique()
+    
+    if len(unique_dates) == 0:
+        return
+
+    today = date.today()
+    future_dates = [d for d in unique_dates if d >= today]
+    reference_date = future_dates[0] if future_dates else unique_dates[-1]
+
+    latest_dates_slice = list(unique_dates[-num_latest:])
+    if reference_date not in latest_dates_slice:
+        latest_dates_slice.append(reference_date)
+
+    filtered_plan = valid_plan[valid_plan['parsed_date'].dt.date.isin(latest_dates_slice)]
+    display_df = filtered_plan.drop(columns=['parsed_date'])
+    
+    pivot_df = display_df.pivot(index='Task', columns='Date', values='AssignedMember').reset_index()
+    
+    html_content = f"""<!DOCTYPE html>
+<html lang="mg">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fandaharana Sabata - Church Schedule</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; background-color: #f4f6f9; margin: 0; padding: 20px; color: #333; }}
+        .container {{ max-width: 950px; margin: auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }}
+        h1 {{ color: #2c3e50; text-align: center; }}
+        p.subtitle {{ text-align: center; color: #7f8c8d; margin-bottom: 30px; }}
+        .table-responsive {{ overflow-x: auto; }}
+        table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+        th, td {{ border: 1px solid #ddd; padding: 12px; text-align: center; font-size: 0.95em; }}
+        th {{ background-color: #3498db; color: white; }}
+        tr:nth-child(even) {{ background-color: #f9f9f9; }}
+        .footer {{ text-align: center; margin-top: 40px; font-size: 0.85em; color: #aaa; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⛪ Fandaharana Sabata</h1>
+        <p class="subtitle">Fandaharana farany ho an'ny fiangonana (Church Schedule)</p>
+        
+        <div class="table-responsive">
+            {pivot_df.to_html(index=False, classes='schedule-table')}
+        </div>
+        
+        <div class="footer">
+            <p>Namboarina tamin'ny alalan'ny rafitra mandeha ho azy (Automated Church Schedule Generator)</p>
+        </div>
+    </div>
+</body>
+</html>
+"""
+    push_file_to_github("index.html", html_content, "Auto-publish index.html for GitHub Pages")
+
+
 # --- SIDEBAR: REFRESH & QUICK ACTIONS ---
 st.sidebar.header("🛠️ System Controls")
 if st.sidebar.button("🔄 Refresh App & Clear Cache"):
@@ -328,18 +393,23 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                 st.success("✨ Schedule successfully generated for new dates!")
                 st.dataframe(result_df, use_container_width=True)
 
-                with st.spinner("Updating Planning.csv on GitHub..."):
+                with st.spinner("Updating Planning.csv and publishing public Web Page on GitHub..."):
                     if planning_df is not None and not planning_df.empty:
                         base_planning_df = planning_df.drop(columns=['parsed_date'], errors='ignore')
                     else:
                         base_planning_df = pd.DataFrame(columns=["Date", "Task", "AssignedMember"])
 
                     updated_planning_df = pd.concat([base_planning_df, result_df], ignore_index=True)
-                    success = push_file_to_github("Planning.csv", updated_planning_df.to_csv(index=False), "Auto-update Planning.csv with new Sabbaths")
+                    
+                    # 1. Update Planning.csv
+                    success_csv = push_file_to_github("Planning.csv", updated_planning_df.to_csv(index=False), "Auto-update Planning.csv with new Sabbaths")
+                    
+                    # 2. Automatically publish index.html for GitHub Pages
+                    publish_public_schedule_page(updated_planning_df, num_latest=num_sabbaths)
 
-                    if success:
+                    if success_csv:
                         st.balloons()
-                        st.success("🎉 Successfully updated Planning.csv in your GitHub repository!")
+                        st.success("🎉 Successfully updated Planning.csv and published the public Member Web Page on GitHub!")
                     else:
                         st.warning("⚠️ Auto-commit failed, but you can download the CSV manually below.")
 
@@ -367,35 +437,34 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                 csv_string = edited_df.to_csv(index=False)
                 with st.spinner(f"Pushing {dataset_choice} update to GitHub..."):
                     success = push_file_to_github(dataset_choice, csv_string, f"Manual CRUD update on {dataset_choice}")
+                    if dataset_choice == "Planning.csv" and success:
+                        publish_public_schedule_page(edited_df, num_latest=num_sabbaths)
+
                     if success:
                         st.success(f"✅ Successfully updated {dataset_choice} in GitHub!")
                     else:
-                        st.error(f"❌ Failed to update {dataset_choice}. Check your GitHub token permissions.")
+                        st.error(f"❌ Failed to update {dataset_choice}. Check your token permissions.")
         else:
             st.warning(f"Could not load {dataset_choice}.")
 
     # ================= TAB 3: MEMBER SCHEDULE VIEW =================
     with tab_view:
         st.title("👥 Member Schedule View")
-        st.markdown("Showing the latest generated Sabbath schedules plus the nearest upcoming reference Sabbath.")
+        st.markdown("Internal preview of what church members will see on the public web page.")
 
         if planning_df is not None and not planning_df.empty:
-            # Parse dates and sort chronologically
             planning_df['parsed_date'] = pd.to_datetime(planning_df['Date'], format='%d/%m/%Y', errors='coerce')
             valid_plan = planning_df.dropna(subset=['parsed_date']).sort_values(by='parsed_date')
 
             unique_dates = valid_plan['parsed_date'].dt.date.unique()
 
             if len(unique_dates) > 0:
-                # Let user choose how many latest generated batches to view (e.g. 2, 3, or 4)
                 num_latest_to_show = st.slider("Number of latest Sabbath batches to display", min_value=1, max_value=5, value=3)
                 
-                # Identify today / upcoming reference point
                 today = date.today()
                 future_dates = [d for d in unique_dates if d >= today]
                 reference_date = future_dates[0] if future_dates else unique_dates[-1]
 
-                # Select the latest N dates plus the reference date
                 latest_dates_slice = list(unique_dates[-num_latest_to_show:])
                 if reference_date not in latest_dates_slice:
                     latest_dates_slice.append(reference_date)
@@ -404,10 +473,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                 display_df = filtered_plan.drop(columns=['parsed_date'])
 
                 st.info(f"Displaying schedule for the most recent {num_latest_to_show} Sabbath generation(s) + nearest coming reference Sabbath.")
-                st.dataframe(display_df, use_container_width=True)
-
-                # Pivot table layout for easy church reading
-                st.subheader("📋 Matrix Layout (Tasks by Sabbath Date)")
+                
                 pivot_df = display_df.pivot(index='Task', columns='Date', values='AssignedMember')
                 st.dataframe(pivot_df, use_container_width=True)
             else:
@@ -416,4 +482,4 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
             st.info("No planning history available yet. Generate a schedule first!")
 
 else:
-    st.error("❌ Could not load required dataset files (`Members.csv`, `Competencies.csv`, or `Tasks.csv`) from your GitHub repository. Please ensure they are present in the repository root directory.")
+    st.error("❌ Could not load required dataset files (`Members.csv`, `Competencies.csv`, or `Tasks.csv`) from your GitHub repository.")
