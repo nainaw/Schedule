@@ -220,9 +220,7 @@ def publish_public_schedule_page(planning_df, num_latest=3):
         
         {sabbath_cards_html}
         
-        <div class="footer">
-            <p>Namboarina tamin'ny alalan'ny rafitra mandeha ho azy</p>
-        </div>
+        
     </div>
 </body>
 </html>
