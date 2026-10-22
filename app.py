@@ -10,137 +10,147 @@ from datetime import datetime, timedelta, date
 st.set_page_config(page_title="Church Schedule Generator", layout="wide")
 
 st.title("⛪ Church Schedule Planning Generator")
-st.markdown("Upload your datasets (or use default repository files), customize group rules and Sabbath dates, and automatically generate the fair-rotation planning sheet.")
+st.markdown("Automated fair-rotation church scheduling with persistent cloud settings and GitHub sync.")
 
-# --- HELPER: GITHUB AUTO-COMMIT (AUTO-DETECTS MAIN/MASTER) ---
-def update_github_csv(new_rows_df, file_path="Planning.csv"):
+# --- GITHUB API HELPERS ---
+def get_github_repo_file(file_path):
+    """Fetches raw content and sha of a file from GitHub (tries main, then master)."""
     if "GITHUB_TOKEN" not in st.secrets or "REPO_NAME" not in st.secrets:
-        return False, "GitHub credentials not found in Streamlit Secrets."
+        return None, None, None
 
     token = st.secrets["GITHUB_TOKEN"]
     repo = st.secrets["REPO_NAME"]
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github.v3+json"
-    }
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"}
 
-    # Try 'main' first, fallback to 'master'
-    branch = "main"
-    url = f"https://api.github.com/repos/{repo}/contents/{file_path}?ref={branch}"
-    res = requests.get(url, headers=headers)
-    if res.status_code == 404:
-        branch = "master"
+    for branch in ["main", "master"]:
         url = f"https://api.github.com/repos/{repo}/contents/{file_path}?ref={branch}"
         res = requests.get(url, headers=headers)
+        if res.status_code == 200:
+            data = res.json()
+            content = base64.b64decode(data["content"]).decode("utf-8")
+            return content, data["sha"], branch
+    return None, None, "main"
 
-    sha = None
-    current_df = pd.DataFrame(columns=["Date", "Task", "AssignedMember"])
+def push_file_to_github(file_path, content_str, commit_message):
+    """Pushes or updates a file directly in the GitHub repository."""
+    if "GITHUB_TOKEN" not in st.secrets or "REPO_NAME" not in st.secrets:
+        return False
+
+    token = st.secrets["GITHUB_TOKEN"]
+    repo = st.secrets["REPO_NAME"]
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"}
+
+    _, sha, branch = get_github_repo_file(file_path)
+    url = f"https://api.github.com/repos/{repo}/contents/{file_path}"
     
-    if res.status_code == 200:
-        file_data = res.json()
-        sha = file_data["sha"]
-        current_content = base64.b64decode(file_data["content"]).decode("utf-8")
-        current_df = pd.read_csv(pd.io.common.StringIO(current_content))
-    elif res.status_code != 404:
-        return False, f"Failed to check {file_path} on GitHub: {res.text}"
-
-    # Append new rows
-    updated_df = pd.concat([current_df, new_rows_df], ignore_index=True)
-    updated_csv_str = updated_df.to_csv(index=False)
-
-    put_url = f"https://api.github.com/repos/{repo}/contents/{file_path}"
-    encoded_content = base64.b64encode(updated_csv_str.encode("utf-8")).decode("utf-8")
+    encoded = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
     payload = {
-        "message": "Auto-update Planning.csv from Streamlit Schedule Generator",
-        "content": encoded_content,
+        "message": commit_message,
+        "content": encoded,
         "branch": branch
     }
     if sha:
         payload["sha"] = sha
 
-    put_res = requests.put(put_url, headers=headers, data=json.dumps(payload))
-    if put_res.status_code in [200, 201]:
-        return True, f"Successfully updated Planning.csv in GitHub ({branch} branch)!"
-    else:
-        return False, f"Failed to commit to GitHub: {put_res.text}"
+    res = requests.put(url, headers=headers, data=json.dumps(payload))
+    return res.status_code in [200, 201]
 
 
-# --- SIDEBAR: FILE UPLOADS WITH DEFAULT FALLBACK ---
-st.sidebar.header("1. Upload CSV Files (Optional)")
+# --- LOAD / SYNC CONFIG.JSON FROM GITHUB ---
+config_data = {}
+config_str, _, _ = get_github_repo_file("config.json")
+if config_str:
+    try:
+        config_data = json.loads(config_str)
+    except:
+        config_data = {}
+
+def save_config_to_github(new_config):
+    push_file_to_github("config.json", json.dumps(new_config, indent=4), "Update app configuration")
+
+
+# --- DATA LOADING WITH GITHUB SYNC ---
+st.sidebar.header("1. Dataset Management")
 uploaded_members = st.sidebar.file_uploader("Members.csv", type=["csv"])
 uploaded_competencies = st.sidebar.file_uploader("Competencies.csv", type=["csv"])
 uploaded_tasks = st.sidebar.file_uploader("Tasks.csv", type=["csv"])
-uploaded_planning = st.sidebar.file_uploader("Planning.csv (History for Rotation)", type=["csv"])
+uploaded_planning = st.sidebar.file_uploader("Planning.csv (History)", type=["csv"])
 
-def load_data(uploaded_file, default_filename):
+def load_or_sync_csv(uploaded_file, filename):
     if uploaded_file is not None:
-        return pd.read_csv(uploaded_file)
-    elif os.path.exists(default_filename):
-        return pd.read_csv(default_filename)
+        df = pd.read_csv(uploaded_file)
+        # Auto-sync uploaded CSV to GitHub so it persists!
+        push_file_to_github(filename, uploaded_file.getvalue().decode("utf-8"), f"Update {filename} from app upload")
+        return df
+    else:
+        content, _, _ = get_github_repo_file(filename)
+        if content:
+            return pd.read_csv(pd.io.common.StringIO(content))
+        elif os.path.exists(filename):
+            return pd.read_csv(filename)
     return None
 
-members_df = load_data(uploaded_members, "Members.csv")
-competencies_df = load_data(uploaded_competencies, "Competencies.csv")
-tasks_df = load_data(uploaded_tasks, "Tasks.csv")
-planning_df = load_data(uploaded_planning, "Planning.csv")
+members_df = load_or_sync_csv(uploaded_members, "Members.csv")
+competencies_df = load_or_sync_csv(uploaded_competencies, "Competencies.csv")
+tasks_df = load_or_sync_csv(uploaded_tasks, "Tasks.csv")
+planning_df = load_or_sync_csv(uploaded_planning, "Planning.csv")
 
 if members_df is not None and competencies_df is not None and tasks_df is not None:
     task_id_to_name = dict(zip(tasks_df['id'].astype(str), tasks_df['name'].astype(str)))
     task_names = tasks_df['name'].dropna().astype(str).tolist()
 
-    # --- SESSION STATE INITIALIZATION FOR SETTINGS ---
-    if "start_date" not in st.session_state:
-        st.session_state.start_date = date.today()
-    if "num_sabbaths" not in st.session_state:
-        st.session_state.num_sabbaths = 2
-    if "elder_choice" not in st.session_state:
-        st.session_state.elder_choice = 1
-
     default_ss = [t for t in ["SSM", "SST", "SS5"] if t in task_names]
     default_cu = [t for t in ["SSM", "SST", "SS5", "CUM", "CUVK", "CUVP", "CUFN", "CUTA", "CUTL"] if t in task_names]
 
-    groups_default = {
-        "s1_grp": ("Tanora Zokiny", default_ss),
-        "s2_grp": ("Zatovo", default_ss),
-        "s3_grp": ("Lehibe I", default_ss),
-        "s4_grp": ("Lehibe II", default_ss),
-        "s5_grp": ("MINENF", default_cu)
-    }
-
-    for key, (g_name, g_tasks) in groups_default.items():
-        if f"{key}_name" not in st.session_state:
-            st.session_state[f"{key}_name"] = g_name
-        if f"{key}_tasks" not in st.session_state:
-            st.session_state[f"{key}_tasks"] = g_tasks
-
-    # --- SIDEBAR: SETTINGS ---
+    # --- SIDEBAR SETTINGS (LOADED FROM GITHUB CONFIG IF AVAILABLE) ---
     st.sidebar.header("2. Planning Period & Settings")
-    start_date = st.sidebar.date_input("Start Date", value=st.session_state.start_date, key="start_date")
-    num_sabbaths = st.sidebar.slider("Number of Sabbaths to Generate", min_value=1, max_value=10, value=st.session_state.num_sabbaths, key="num_sabbaths")
+    start_date_val = datetime.strptime(config_data.get("start_date", str(date.today())), "%Y-%m-%d").date() if "start_date" in config_data else date.today()
+    start_date = st.sidebar.date_input("Start Date", value=start_date_val, key="start_date_input")
+    num_sabbaths = st.sidebar.slider("Number of Sabbaths to Generate", min_value=1, max_value=10, value=config_data.get("num_sabbaths", 2), key="num_sabbaths_slider")
 
     st.sidebar.header("3. Special Rules Configuration")
     elder_sabbath_choice = st.sidebar.selectbox(
-        "Reserve CUTL for Elder on which Sabbath of Trimester Start Months (Jan, Apr, Jul, Oct)?",
+        "Reserve CUTL for Elder on which Sabbath of Trimester Start Months?",
         options=[1, 2, 3, 4, 5],
-        index=st.session_state.elder_choice,
-        key="elder_choice"
+        index=config_data.get("elder_sabbath_choice", 1),
+        key="elder_sabbath_select"
     )
 
     st.sidebar.header("4. Group Rule Configuration")
-    sabbath_1_group = st.sidebar.text_input("1st Sabbath Group", key="s1_grp_name")
-    sabbath_1_tasks = st.sidebar.multiselect("1st Sabbath Group Tasks", options=task_names, key="s1_grp_tasks")
+    s1 = config_data.get("s1", {"group": "Tanora Zokiny", "tasks": default_ss})
+    s2 = config_data.get("s2", {"group": "Zatovo", "tasks": default_ss})
+    s3 = config_data.get("s3", {"group": "Lehibe I", "tasks": default_ss})
+    s4 = config_data.get("s4", {"group": "Lehibe II", "tasks": default_ss})
+    s5 = config_data.get("s5", {"group": "MINENF", "tasks": default_cu})
 
-    sabbath_2_group = st.sidebar.text_input("2nd Sabbath Group", key="s2_grp_name")
-    sabbath_2_tasks = st.sidebar.multiselect("2nd Sabbath Group Tasks", options=task_names, key="s2_grp_tasks")
+    sabbath_1_group = st.sidebar.text_input("1st Sabbath Group", value=s1["group"], key="s1_g")
+    sabbath_1_tasks = st.sidebar.multiselect("1st Sabbath Group Tasks", options=task_names, default=[t for t in s1["tasks"] if t in task_names], key="s1_t")
 
-    sabbath_3_group = st.sidebar.text_input("3rd Sabbath Group", key="s3_grp_name")
-    sabbath_3_tasks = st.sidebar.multiselect("3rd Sabbath Group Tasks", options=task_names, key="s3_grp_tasks")
+    sabbath_2_group = st.sidebar.text_input("2nd Sabbath Group", value=s2["group"], key="s2_g")
+    sabbath_2_tasks = st.sidebar.multiselect("2nd Sabbath Group Tasks", options=task_names, default=[t for t in s2["tasks"] if t in task_names], key="s2_t")
 
-    sabbath_4_group = st.sidebar.text_input("4th Sabbath Group", key="s4_grp_name")
-    sabbath_4_tasks = st.sidebar.multiselect("4th Sabbath Group Tasks", options=task_names, key="s4_grp_tasks")
+    sabbath_3_group = st.sidebar.text_input("3rd Sabbath Group", value=s3["group"], key="s3_g")
+    sabbath_3_tasks = st.sidebar.multiselect("3rd Sabbath Group Tasks", options=task_names, default=[t for t in s3["tasks"] if t in task_names], key="s3_t")
 
-    sabbath_5_group = st.sidebar.text_input("5th Sabbath Group", key="s5_grp_name")
-    sabbath_5_tasks = st.sidebar.multiselect("5th Sabbath Group Tasks", options=task_names, key="s5_grp_tasks")
+    sabbath_4_group = st.sidebar.text_input("4th Sabbath Group", value=s4["group"], key="s4_g")
+    sabbath_4_tasks = st.sidebar.multiselect("4th Sabbath Group Tasks", options=task_names, default=[t for t in s4["tasks"] if t in task_names], key="s4_t")
+
+    sabbath_5_group = st.sidebar.text_input("5th Sabbath Group", value=s5["group"], key="s5_g")
+    sabbath_5_tasks = st.sidebar.multiselect("5th Sabbath Group Tasks", options=task_names, default=[t for t in s5["tasks"] if t in task_names], key="s5_t")
+
+    # Save current configuration back to GitHub config.json automatically on change
+    current_config = {
+        "start_date": str(start_date),
+        "num_sabbaths": num_sabbaths,
+        "elder_sabbath_choice": elder_sabbath_choice,
+        "s1": {"group": sabbath_1_group, "tasks": sabbath_1_tasks},
+        "s2": {"group": sabbath_2_group, "tasks": sabbath_2_tasks},
+        "s3": {"group": sabbath_3_group, "tasks": sabbath_3_tasks},
+        "s4": {"group": sabbath_4_group, "tasks": sabbath_4_tasks},
+        "s5": {"group": sabbath_5_group, "tasks": sabbath_5_tasks},
+    }
+    if current_config != config_data:
+        save_config_to_github(current_config)
 
     # --- CALCULATE SABBATH DATES ---
     def get_next_saturdays(start_dt, count):
@@ -243,7 +253,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                     eligible_df = members_df[(members_df['id'].isin(competent_member_ids)) & (members_df['available'] == True)]
                     
                     is_trimester_start_month = sat.month in [1, 4, 7, 10]
-                    if t_name == "CUTL" and is_trimester_start_month and s_idx == (elder_sabbath_choice + 1): # index 0-4 maps to 1-5
+                    if t_name == "CUTL" and is_trimester_start_month and s_idx == (elder_sabbath_choice + 1):
                         if 'Elder' in members_df.columns:
                             elder_filter = members_df['Elder'].astype(str).str.upper().isin(['TRUE', 'YES', '1'])
                             elder_member_ids = members_df[elder_filter]['id'].tolist()
@@ -291,14 +301,25 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
         st.success("✨ Schedule successfully generated!")
         st.dataframe(result_df, use_container_width=True)
 
-        # --- AUTO-COMMIT TO GITHUB ---
+        # --- AUTO-COMMIT PLANNING.CSV TO GITHUB ---
         with st.spinner("Updating Planning.csv on GitHub..."):
-            success, msg = update_github_csv(result_df)
+            # Fetch existing planning from GitHub or local file
+            existing_planning_str, _, _ = get_github_repo_file("Planning.csv")
+            if existing_planning_str:
+                base_planning_df = pd.read_csv(pd.io.common.StringIO(existing_planning_str))
+            elif planning_df is not None:
+                base_planning_df = planning_df
+            else:
+                base_planning_df = pd.DataFrame(columns=["Date", "Task", "AssignedMember"])
+
+            updated_planning_df = pd.concat([base_planning_df, result_df], ignore_index=True)
+            success = push_file_to_github("Planning.csv", updated_planning_df.to_csv(index=False), "Auto-update Planning.csv from schedule generation")
+
             if success:
                 st.balloons()
-                st.success(f"🎉 {msg}")
+                st.success("🎉 Successfully updated Planning.csv in your GitHub repository!")
             else:
-                st.warning(f"⚠️ Manual Download Available. Auto-commit info: {msg}")
+                st.warning("⚠️ Auto-commit failed, but you can download the CSV manually below.")
 
         csv_data = result_df.to_csv(index=False).encode('utf-8')
         st.download_button(
