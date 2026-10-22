@@ -56,7 +56,7 @@ def push_file_to_github(file_path, content_str, commit_message):
     return res.status_code in [200, 201]
 
 
-# --- LOAD / SYNC CONFIG.JSON FROM GITHUB ---
+# --- LOAD CONFIG.JSON FROM GITHUB ---
 config_data = {}
 config_str, _, _ = get_github_repo_file("config.json")
 if config_str:
@@ -69,31 +69,19 @@ def save_config_to_github(new_config):
     push_file_to_github("config.json", json.dumps(new_config, indent=4), "Update app configuration")
 
 
-# --- DATA LOADING WITH GITHUB SYNC ---
-st.sidebar.header("1. Dataset Management")
-uploaded_members = st.sidebar.file_uploader("Members.csv", type=["csv"])
-uploaded_competencies = st.sidebar.file_uploader("Competencies.csv", type=["csv"])
-uploaded_tasks = st.sidebar.file_uploader("Tasks.csv", type=["csv"])
-uploaded_planning = st.sidebar.file_uploader("Planning.csv (History)", type=["csv"])
-
-def load_or_sync_csv(uploaded_file, filename):
-    if uploaded_file is not None:
-        df = pd.read_csv(uploaded_file)
-        # Auto-sync uploaded CSV to GitHub so it persists!
-        push_file_to_github(filename, uploaded_file.getvalue().decode("utf-8"), f"Update {filename} from app upload")
-        return df
-    else:
-        content, _, _ = get_github_repo_file(filename)
-        if content:
-            return pd.read_csv(pd.io.common.StringIO(content))
-        elif os.path.exists(filename):
-            return pd.read_csv(filename)
+# --- LOAD DATASETS DIRECTLY FROM GITHUB ---
+def load_github_csv(filename):
+    content, _, _ = get_github_repo_file(filename)
+    if content:
+        return pd.read_csv(pd.io.common.StringIO(content))
+    elif os.path.exists(filename):
+        return pd.read_csv(filename)
     return None
 
-members_df = load_or_sync_csv(uploaded_members, "Members.csv")
-competencies_df = load_or_sync_csv(uploaded_competencies, "Competencies.csv")
-tasks_df = load_or_sync_csv(uploaded_tasks, "Tasks.csv")
-planning_df = load_or_sync_csv(uploaded_planning, "Planning.csv")
+members_df = load_github_csv("Members.csv")
+competencies_df = load_github_csv("Competencies.csv")
+tasks_df = load_github_csv("Tasks.csv")
+planning_df = load_github_csv("Planning.csv")
 
 if members_df is not None and competencies_df is not None and tasks_df is not None:
     task_id_to_name = dict(zip(tasks_df['id'].astype(str), tasks_df['name'].astype(str)))
@@ -102,21 +90,28 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
     default_ss = [t for t in ["SSM", "SST", "SS5"] if t in task_names]
     default_cu = [t for t in ["SSM", "SST", "SS5", "CUM", "CUVK", "CUVP", "CUFN", "CUTA", "CUTL"] if t in task_names]
 
-    # --- SIDEBAR SETTINGS (LOADED FROM GITHUB CONFIG IF AVAILABLE) ---
-    st.sidebar.header("2. Planning Period & Settings")
+    # --- SIDEBAR SETTINGS (LOADED FROM GITHUB CONFIG) ---
+    st.sidebar.header("1. Planning Period & Settings")
     start_date_val = datetime.strptime(config_data.get("start_date", str(date.today())), "%Y-%m-%d").date() if "start_date" in config_data else date.today()
     start_date = st.sidebar.date_input("Start Date", value=start_date_val, key="start_date_input")
     num_sabbaths = st.sidebar.slider("Number of Sabbaths to Generate", min_value=1, max_value=10, value=config_data.get("num_sabbaths", 2), key="num_sabbaths_slider")
 
-    st.sidebar.header("3. Special Rules Configuration")
+    st.sidebar.header("2. Special Rules Configuration")
+    elder_options = [1, 2, 3, 4, 5]
+    saved_elder_choice = config_data.get("elder_sabbath_choice", 2)
+    try:
+        elder_default_index = elder_options.index(saved_elder_choice)
+    except ValueError:
+        elder_default_index = 1
+
     elder_sabbath_choice = st.sidebar.selectbox(
         "Reserve CUTL for Elder on which Sabbath of Trimester Start Months?",
-        options=[1, 2, 3, 4, 5],
-        index=config_data.get("elder_sabbath_choice", 1),
+        options=elder_options,
+        index=elder_default_index,
         key="elder_sabbath_select"
     )
 
-    st.sidebar.header("4. Group Rule Configuration")
+    st.sidebar.header("3. Group Rule Configuration")
     s1 = config_data.get("s1", {"group": "Tanora Zokiny", "tasks": default_ss})
     s2 = config_data.get("s2", {"group": "Zatovo", "tasks": default_ss})
     s3 = config_data.get("s3", {"group": "Lehibe I", "tasks": default_ss})
@@ -253,7 +248,8 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                     eligible_df = members_df[(members_df['id'].isin(competent_member_ids)) & (members_df['available'] == True)]
                     
                     is_trimester_start_month = sat.month in [1, 4, 7, 10]
-                    if t_name == "CUTL" and is_trimester_start_month and s_idx == (elder_sabbath_choice + 1):
+                    # Direct comparison with elder_sabbath_choice value (1, 2, 3, 4, or 5)
+                    if t_name == "CUTL" and is_trimester_start_month and s_idx == elder_sabbath_choice:
                         if 'Elder' in members_df.columns:
                             elder_filter = members_df['Elder'].astype(str).str.upper().isin(['TRUE', 'YES', '1'])
                             elder_member_ids = members_df[elder_filter]['id'].tolist()
@@ -303,7 +299,6 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
 
         # --- AUTO-COMMIT PLANNING.CSV TO GITHUB ---
         with st.spinner("Updating Planning.csv on GitHub..."):
-            # Fetch existing planning from GitHub or local file
             existing_planning_str, _, _ = get_github_repo_file("Planning.csv")
             if existing_planning_str:
                 base_planning_df = pd.read_csv(pd.io.common.StringIO(existing_planning_str))
@@ -329,4 +324,4 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
             mime="text/csv",
         )
 else:
-    st.info("👈 Please ensure `Members.csv`, `Competencies.csv`, and `Tasks.csv` exist in your repository or upload them in the sidebar.")
+    st.error("❌ Could not load required dataset files (`Members.csv`, `Competencies.csv`, or `Tasks.csv`) from your GitHub repository. Please ensure they are present in the repository root directory.")
