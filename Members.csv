@@ -1,53 +1,53 @@
 id,name,available,Youth,Elder
-4,R. Haja,FALSE,FALSE,FALSE
-5,R. Raivo,TRUE,FALSE,FALSE
-6,R. Herinirina,TRUE,TRUE,FALSE
-7,A. Rado,TRUE,TRUE,TRUE
-8,M. Tsoa,TRUE,TRUE,FALSE
-9,R. Andoniaina,TRUE,TRUE,FALSE
-10,R. Yolande,FALSE,FALSE,TRUE
-11,R. Fabrice,TRUE,TRUE,FALSE
-12,Adonih,TRUE,TRUE,FALSE
-13,Rafidimanana,TRUE,FALSE,FALSE
-14,R. Fitia,TRUE,TRUE,TRUE
-15,R. Armand,TRUE,FALSE,FALSE
-16,R. Fihobiana,TRUE,TRUE,FALSE
-17,Aldo,TRUE,TRUE,FALSE
-18,R. Tsilavina,TRUE,TRUE,FALSE
-19,R. André,TRUE,FALSE,FALSE
-20,A. Michael,TRUE,TRUE,FALSE
-21,R. Patern,TRUE,FALSE,TRUE
-22,R. Florette,TRUE,TRUE,FALSE
-23,R. Fenosoa,TRUE,TRUE,FALSE
-24,R. Arthur,FALSE,FALSE,FALSE
-25,T. Harisoa,TRUE,FALSE,FALSE
-26,Razafinirinarisoa,TRUE,FALSE,FALSE
-27,R. Romuald,TRUE,FALSE,FALSE
-28,R. Jeannine,TRUE,FALSE,FALSE
-29,R. Estelle,TRUE,TRUE,FALSE
-30,E. Falisoa,TRUE,TRUE,FALSE
-31,R. Johnson,FALSE,FALSE,FALSE
-32,R. Jeannot,FALSE,FALSE,FALSE
-33,R. Ernestine,TRUE,FALSE,FALSE
-34,R. Saholimalala,TRUE,FALSE,FALSE
-35,T. Fitiavana,FALSE,TRUE,FALSE
-36,A. Notahiana,FALSE,TRUE,FALSE
-37,R. Volasoa Florette,FALSE,FALSE,FALSE
-38,Pulchérie,TRUE,FALSE,FALSE
-39,Todisoa,TRUE,TRUE,FALSE
-40,Santatra,FALSE,FALSE,FALSE
-41,Vahiny,FALSE,FALSE,FALSE
-42,Mario,TRUE,TRUE,FALSE
-43,Mitia,FALSE,TRUE,FALSE
-44,Xénophan,TRUE,TRUE,FALSE
-45,Volatiana,FALSE,FALSE,FALSE
-46,Ramaroson Liva,TRUE,TRUE,FALSE
-47,R. Vololona,TRUE,FALSE,FALSE
-48,R. Misedra,TRUE,TRUE,FALSE
-49,Minosoa,TRUE,TRUE,FALSE
-50,Kevin,TRUE,TRUE,FALSE
-51,Princy,FALSE,TRUE,FALSE
-52,Marcel,TRUE,FALSE,FALSE
-53,Koloina,TRUE,TRUE,FALSE
-54,Sariaka,TRUE,TRUE,FALSE
-55,Tahiana,TRUE,TRUE,FALSE
+4,R. Haja,False,False,False
+5,R. Raivo,True,False,False
+6,R. Herinirina,True,True,False
+7,A. Rado,True,True,True
+8,M. Tsoa,True,True,False
+9,R. Andoniaina,True,True,False
+10,R. Yolande,False,False,True
+11,R. Fabrice,True,True,False
+12,Adonih,True,True,False
+13,Rafidimanana,True,False,False
+14,R. Fitia,True,True,True
+15,R. Armand,True,False,False
+16,R. Fihobiana,True,True,False
+17,Aldo,True,True,False
+18,R. Tsilavina,True,True,False
+19,R. André,True,False,False
+20,A. Michael,True,True,False
+21,R. Patern,True,False,True
+22,R. Florette,True,True,False
+23,R. Fenosoa,True,True,False
+24,R. Arthur,False,False,False
+25,T. Harisoa,True,False,False
+26,Razafinirinarisoa,True,False,False
+27,R. Romuald,True,False,False
+28,R. Jeannine,True,False,False
+29,R. Estelle,True,True,False
+30,E. Falisoa,True,True,False
+31,R. Johnson,False,False,False
+32,R. Jeannot,False,False,False
+33,R. Ernestine,True,False,False
+34,R. Saholimalala,True,False,False
+35,T. Fitiavana,False,True,False
+36,A. Notahiana,False,True,False
+37,R. Volasoa Florette,False,False,False
+38,Pulchérie,True,False,False
+39,Todisoa,True,True,False
+40,Santatra,False,False,False
+41,Vahiny,False,False,False
+42,Mario,True,True,False
+43,Mitia,False,True,False
+44,Xénophan,True,True,False
+45,Volatiana,False,False,False
+46,Ramaroson Liva,True,True,False
+47,R. Vololona,True,False,False
+48,R. Misedra,True,True,False
+49,Minosoa,True,True,False
+50,Kevin,True,True,False
+51,Princy,False,True,False
+52,Marcel,True,False,False
+53,Koloina,True,True,False
+54,Sariaka,True,True,False
+55,Tahiana,True,True,False
