@@ -59,13 +59,14 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
     if planning_df is None or planning_df.empty:
         return
     
-    # Map short task codes to full descriptions
+    # Map short task codes to full descriptions from Tasks.csv
     task_desc_map = {}
     if tasks_df is not None and 'name' in tasks_df.columns and 'description' in tasks_df.columns:
         task_desc_map = dict(zip(tasks_df['name'].astype(str), tasks_df['description'].fillna(tasks_df['name']).astype(str)))
 
     df = planning_df.copy()
-    df['parsed_date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y', errors='coerce')
+    # Explicitly enforce DD/MM/YYYY parsing with dayfirst=True
+    df['parsed_date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y', dayfirst=True, errors='coerce')
     valid_plan = df.dropna(subset=['parsed_date']).sort_values(by='parsed_date')
     unique_dates = valid_plan['parsed_date'].dt.date.unique()
     
@@ -90,7 +91,7 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
         rows_html = ""
         for _, row in day_df.iterrows():
             t_code = str(row['Task']).strip()
-            t_display = task_desc_map.get(t_code, t_code) # Uses full description if available
+            t_display = task_desc_map.get(t_code, t_code) # Uses description from Tasks.csv
             
             rows_html += f"""
             <div class="schedule-row">
@@ -381,7 +382,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
 
         existing_dates = set()
         if planning_df is not None and not planning_df.empty:
-            planning_df['parsed_date'] = pd.to_datetime(planning_df['Date'], format='%d/%m/%Y', errors='coerce')
+            planning_df['parsed_date'] = pd.to_datetime(planning_df['Date'], format='%d/%m/%Y', dayfirst=True, errors='coerce')
             existing_dates = set(planning_df['parsed_date'].dt.date.dropna())
             
             if not planning_df['parsed_date'].isna().all():
@@ -429,7 +430,6 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                     elif s_idx == 2:
                         active_group, group_tasks = sabbath_2_group, sabbath_2_tasks
                     elif s_idx == 3:
-                        # 3rd Sabbath: Lehibe I handles specified tasks (SSM, SST, SS5)
                         active_group, group_tasks = sabbath_3_group, sabbath_3_tasks
                     elif s_idx == 4:
                         active_group, group_tasks = sabbath_4_group, sabbath_4_tasks
@@ -447,7 +447,6 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                             competent_member_ids = competencies_df[competencies_df['tasks_id'].astype(str) == t_id]['member_id'].tolist()
                             eligible = members_df[(members_df['id'].isin(competent_member_ids)) & (members_df['available'] == True)]
                             
-                            # Restrict remaining individual tasks to Youth if 3rd Sabbath
                             if s_idx == 3 and 'Youth' in members_df.columns:
                                 youth_mask = members_df['Youth'].astype(str).str.upper().isin(['TRUE', 'YES', '1']) | (members_df['Youth'] == True)
                                 eligible = eligible[youth_mask]
@@ -472,7 +471,6 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                             competent_member_ids = competencies_df[competencies_df['tasks_id'].astype(str) == t_id]['member_id'].tolist()
                             eligible_df = members_df[(members_df['id'].isin(competent_member_ids)) & (members_df['available'] == True)]
                             
-                            # Restrict remaining individual tasks to Youth if 3rd Sabbath
                             if s_idx == 3 and 'Youth' in members_df.columns:
                                 youth_mask = members_df['Youth'].astype(str).str.upper().isin(['TRUE', 'YES', '1']) | (members_df['Youth'] == True)
                                 eligible_df = eligible_df[youth_mask]
@@ -537,7 +535,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                     # 1. Update Planning.csv
                     success_csv = push_file_to_github("Planning.csv", updated_planning_df.to_csv(index=False), "Auto-update Planning.csv with new Sabbaths")
                     
-                    # 2. Automatically publish index.html for GitHub Pages (passing tasks_df for task descriptions)
+                    # 2. Automatically publish index.html for GitHub Pages
                     publish_public_schedule_page(updated_planning_df, tasks_df, num_latest=num_sabbaths)
 
                     if success_csv:
@@ -586,7 +584,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
         st.markdown("Internal preview of what church members will see on the public web page.")
 
         if planning_df is not None and not planning_df.empty:
-            planning_df['parsed_date'] = pd.to_datetime(planning_df['Date'], format='%d/%m/%Y', errors='coerce')
+            planning_df['parsed_date'] = pd.to_datetime(planning_df['Date'], format='%d/%m/%Y', dayfirst=True, errors='coerce')
             valid_plan = planning_df.dropna(subset=['parsed_date']).sort_values(by='parsed_date')
 
             unique_dates = valid_plan['parsed_date'].dt.date.unique()
