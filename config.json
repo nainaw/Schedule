@@ -37,9 +37,6 @@
     "s5": {
         "group": "MINENF",
         "tasks": [
-            "SSM",
-            "SST",
-            "SS5",
             "CUM",
             "CUVK",
             "CUVP",
