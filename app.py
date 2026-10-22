@@ -98,11 +98,6 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
 
     st.sidebar.header("2. Special Rules Configuration")
     elder_options = [1, 2, 3, 4, 5]
-    
-    # Defensive session state cleanup to prevent StreamlitValueOutOfRangeError
-    if "elder_sabbath_select" in st.session_state and st.session_state["elder_sabbath_select"] not in elder_options:
-        del st.session_state["elder_sabbath_select"]
-
     saved_elder_choice = config_data.get("elder_sabbath_choice", 2)
     if saved_elder_choice not in elder_options:
         saved_elder_choice = 2
@@ -184,8 +179,15 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
     last_performed_date = {m: {} for m in available_members}
     last_sabbath_assigned_members = set()
 
+    existing_planning_str, _, _ = get_github_repo_file("Planning.csv")
+    if existing_planning_str:
+        planning_df = pd.read_csv(pd.io.common.StringIO(existing_planning_str))
+
+    existing_dates = set()
     if planning_df is not None and not planning_df.empty:
         planning_df['parsed_date'] = pd.to_datetime(planning_df['Date'], format='%d/%m/%Y', errors='coerce')
+        existing_dates = set(planning_df['parsed_date'].dt.date.dropna())
+        
         if not planning_df['parsed_date'].isna().all():
             max_date = planning_df['parsed_date'].max()
             last_sabbath_rows = planning_df[planning_df['parsed_date'] == max_date]
@@ -205,128 +207,142 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
 
     # --- GENERATION LOGIC ---
     if st.button("🚀 Generate Schedule"):
-        generated_rows = []
-
+        # Filter out dates that already exist in Planning.csv
+        valid_saturdays = []
+        skipped_dates = []
+        
         for sat, s_idx in selected_saturdays:
-            date_str = sat.strftime('%d/%m/%Y')
-            
-            active_group = None
-            group_tasks = []
-            if s_idx == 1:
-                active_group, group_tasks = sabbath_1_group, sabbath_1_tasks
-            elif s_idx == 2:
-                active_group, group_tasks = sabbath_2_group, sabbath_2_tasks
-            elif s_idx == 3:
-                active_group, group_tasks = sabbath_3_group, sabbath_3_tasks
-            elif s_idx == 4:
-                active_group, group_tasks = sabbath_4_group, sabbath_4_tasks
-            elif s_idx == 5:
-                active_group, group_tasks = sabbath_5_group, sabbath_5_tasks
+            if sat in existing_dates:
+                skipped_dates.append(sat.strftime('%d/%m/%Y'))
+            else:
+                valid_saturdays.append((sat, s_idx))
 
-            task_scarcity = []
-            for _, task in tasks_df.iterrows():
-                t_id = str(task['id'])
-                t_name = str(task['name'])
+        if skipped_dates:
+            st.warning(f"⚠️ Notice: Schedule generation skipped for the following dates because they already exist in `Planning.csv`: **{', '.join(skipped_dates)}**")
+
+        if not valid_saturdays:
+            st.info("ℹ️ All selected Sabbath dates already exist in your Planning history. No new schedules needed to be generated.")
+        else:
+            generated_rows = []
+
+            for sat, s_idx in valid_saturdays:
+                date_str = sat.strftime('%d/%m/%Y')
                 
-                if active_group and t_name in group_tasks:
-                    competent_count = 0
-                else:
-                    competent_member_ids = competencies_df[competencies_df['tasks_id'].astype(str) == t_id]['member_id'].tolist()
-                    eligible = members_df[(members_df['id'].isin(competent_member_ids)) & (members_df['available'] == True)]
-                    competent_count = len(eligible)
-                
-                task_scarcity.append((task, competent_count))
+                active_group = None
+                group_tasks = []
+                if s_idx == 1:
+                    active_group, group_tasks = sabbath_1_group, sabbath_1_tasks
+                elif s_idx == 2:
+                    active_group, group_tasks = sabbath_2_group, sabbath_2_tasks
+                elif s_idx == 3:
+                    active_group, group_tasks = sabbath_3_group, sabbath_3_tasks
+                elif s_idx == 4:
+                    active_group, group_tasks = sabbath_4_group, sabbath_4_tasks
+                elif s_idx == 5:
+                    active_group, group_tasks = sabbath_5_group, sabbath_5_tasks
 
-            task_scarcity.sort(key=lambda x: x[1])
-
-            assigned_on_this_sabbath = set()
-            current_sabbath_assignments = set()
-            sabbath_schedule = {}
-
-            for task, _ in task_scarcity:
-                t_id = str(task['id'])
-                t_name = str(task['name'])
-                
-                if active_group and t_name in group_tasks:
-                    assigned_person = active_group
-                else:
-                    competent_member_ids = competencies_df[competencies_df['tasks_id'].astype(str) == t_id]['member_id'].tolist()
-                    eligible_df = members_df[(members_df['id'].isin(competent_member_ids)) & (members_df['available'] == True)]
+                task_scarcity = []
+                for _, task in tasks_df.iterrows():
+                    t_id = str(task['id'])
+                    t_name = str(task['name'])
                     
-                    is_trimester_start_month = sat.month in [1, 4, 7, 10]
-                    if t_name == "CUTL" and is_trimester_start_month and s_idx == elder_sabbath_choice:
-                        if 'Elder' in members_df.columns:
-                            elder_filter = members_df['Elder'].astype(str).str.upper().isin(['TRUE', 'YES', '1'])
-                            elder_member_ids = members_df[elder_filter]['id'].tolist()
-                            eligible_df = eligible_df[eligible_df['id'].isin(elder_member_ids)]
-
-                    eligible = eligible_df['name'].tolist()
-                    
-                    if eligible:
-                        not_yet_assigned = [m for m in eligible if m not in assigned_on_this_sabbath]
-                        pool = not_yet_assigned if not_yet_assigned else eligible
-
-                        rested_pool = [m for m in pool if m not in last_sabbath_assigned_members]
-                        final_pool = rested_pool if rested_pool else pool
-
-                        default_old_date = date(2000, 1, 1)
-                        member_last_dates = {
-                            m: last_performed_date.get(m, {}).get(t_name, default_old_date) 
-                            for m in final_pool
-                        }
-                        
-                        oldest_date = min(member_last_dates.values())
-                        candidates = [m for m, d in member_last_dates.items() if d == oldest_date]
-                        
-                        assigned_person = np.random.choice(candidates)
-                        
-                        last_performed_date[assigned_person][t_name] = sat
-                        assigned_on_this_sabbath.add(assigned_person)
-                        current_sabbath_assignments.add(assigned_person)
+                    if active_group and t_name in group_tasks:
+                        competent_count = 0
                     else:
-                        assigned_person = "Unassigned"
+                        competent_member_ids = competencies_df[competencies_df['tasks_id'].astype(str) == t_id]['member_id'].tolist()
+                        eligible = members_df[(members_df['id'].isin(competent_member_ids)) & (members_df['available'] == True)]
+                        competent_count = len(eligible)
+                    
+                    task_scarcity.append((task, competent_count))
 
-                sabbath_schedule[t_name] = assigned_person
+                task_scarcity.sort(key=lambda x: x[1])
 
-            for _, task in tasks_df.iterrows():
-                t_name = str(task['name'])
-                generated_rows.append({
-                    "Date": date_str,
-                    "Task": t_name,
-                    "AssignedMember": sabbath_schedule.get(t_name, "Unassigned")
-                })
-            
-            last_sabbath_assigned_members = current_sabbath_assignments
+                assigned_on_this_sabbath = set()
+                current_sabbath_assignments = set()
+                sabbath_schedule = {}
 
-        result_df = pd.DataFrame(generated_rows)
-        st.success("✨ Schedule successfully generated!")
-        st.dataframe(result_df, use_container_width=True)
+                for task, _ in task_scarcity:
+                    t_id = str(task['id'])
+                    t_name = str(task['name'])
+                    
+                    if active_group and t_name in group_tasks:
+                        assigned_person = active_group
+                    else:
+                        competent_member_ids = competencies_df[competencies_df['tasks_id'].astype(str) == t_id]['member_id'].tolist()
+                        eligible_df = members_df[(members_df['id'].isin(competent_member_ids)) & (members_df['available'] == True)]
+                        
+                        is_trimester_start_month = sat.month in [1, 4, 7, 10]
+                        if t_name == "CUTL" and is_trimester_start_month and s_idx == elder_sabbath_choice:
+                            if 'Elder' in members_df.columns:
+                                elder_filter = members_df['Elder'].astype(str).str.upper().isin(['TRUE', 'YES', '1'])
+                                elder_member_ids = members_df[elder_filter]['id'].tolist()
+                                eligible_df = eligible_df[eligible_df['id'].isin(elder_member_ids)]
 
-        # --- AUTO-COMMIT PLANNING.CSV TO GITHUB ---
-        with st.spinner("Updating Planning.csv on GitHub..."):
-            existing_planning_str, _, _ = get_github_repo_file("Planning.csv")
-            if existing_planning_str:
-                base_planning_df = pd.read_csv(pd.io.common.StringIO(existing_planning_str))
-            elif planning_df is not None:
-                base_planning_df = planning_df
-            else:
-                base_planning_df = pd.DataFrame(columns=["Date", "Task", "AssignedMember"])
+                        eligible = eligible_df['name'].tolist()
+                        
+                        if eligible:
+                            not_yet_assigned = [m for m in eligible if m not in assigned_on_this_sabbath]
+                            pool = not_yet_assigned if not_yet_assigned else eligible
 
-            updated_planning_df = pd.concat([base_planning_df, result_df], ignore_index=True)
-            success = push_file_to_github("Planning.csv", updated_planning_df.to_csv(index=False), "Auto-update Planning.csv from schedule generation")
+                            rested_pool = [m for m in pool if m not in last_sabbath_assigned_members]
+                            final_pool = rested_pool if rested_pool else pool
 
-            if success:
-                st.balloons()
-                st.success("🎉 Successfully updated Planning.csv in your GitHub repository!")
-            else:
-                st.warning("⚠️ Auto-commit failed, but you can download the CSV manually below.")
+                            default_old_date = date(2000, 1, 1)
+                            member_last_dates = {
+                                m: last_performed_date.get(m, {}).get(t_name, default_old_date) 
+                                for m in final_pool
+                            }
+                            
+                            oldest_date = min(member_last_dates.values())
+                            candidates = [m for m, d in member_last_dates.items() if d == oldest_date]
+                            
+                            assigned_person = np.random.choice(candidates)
+                            
+                            last_performed_date[assigned_person][t_name] = sat
+                            assigned_on_this_sabbath.add(assigned_person)
+                            current_sabbath_assignments.add(assigned_person)
+                        else:
+                            assigned_person = "Unassigned"
 
-        csv_data = result_df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Download Planning CSV (Backup)",
-            data=csv_data,
-            file_name="Generated_Planning.csv",
-            mime="text/csv",
-        )
+                    sabbath_schedule[t_name] = assigned_person
+
+                for _, task in tasks_df.iterrows():
+                    t_name = str(task['name'])
+                    generated_rows.append({
+                        "Date": date_str,
+                        "Task": t_name,
+                        "AssignedMember": sabbath_schedule.get(t_name, "Unassigned")
+                    })
+                
+                last_sabbath_assigned_members = current_sabbath_assignments
+
+            result_df = pd.DataFrame(generated_rows)
+            st.success("✨ Schedule successfully generated for new dates!")
+            st.dataframe(result_df, use_container_width=True)
+
+            # --- AUTO-COMMIT PLANNING.CSV TO GITHUB ---
+            with st.spinner("Updating Planning.csv on GitHub..."):
+                if planning_df is not None and not planning_df.empty:
+                    # Drop temporary parsed_date column before concatenation
+                    base_planning_df = planning_df.drop(columns=['parsed_date'], errors='ignore')
+                else:
+                    base_planning_df = pd.DataFrame(columns=["Date", "Task", "AssignedMember"])
+
+                updated_planning_df = pd.concat([base_planning_df, result_df], ignore_index=True)
+                success = push_file_to_github("Planning.csv", updated_planning_df.to_csv(index=False), "Auto-update Planning.csv with new Sabbaths")
+
+                if success:
+                    st.balloons()
+                    st.success("🎉 Successfully updated Planning.csv in your GitHub repository!")
+                else:
+                    st.warning("⚠️ Auto-commit failed, but you can download the CSV manually below.")
+
+            csv_data = result_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Generated Planning CSV (Backup)",
+                data=csv_data,
+                file_name="Generated_Planning.csv",
+                mime="text/csv",
+            )
 else:
     st.error("❌ Could not load required dataset files (`Members.csv`, `Competencies.csv`, or `Tasks.csv`) from your GitHub repository. Please ensure they are present in the repository root directory.")
