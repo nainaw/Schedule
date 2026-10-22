@@ -12,23 +12,27 @@ st.set_page_config(page_title="Church Schedule Generator", layout="wide")
 st.title("⛪ Church Schedule Planning Generator")
 st.markdown("Upload your datasets (or use default repository files), customize group rules and Sabbath dates, and automatically generate the fair-rotation planning sheet.")
 
-# --- HELPER: GITHUB AUTO-COMMIT (ROBUST FOR NEW/EXISTING FILES) ---
+# --- HELPER: GITHUB AUTO-COMMIT (AUTO-DETECTS MAIN/MASTER) ---
 def update_github_csv(new_rows_df, file_path="Planning.csv"):
-    """Appends new schedule rows to Planning.csv and commits directly to GitHub (creates file if missing)."""
     if "GITHUB_TOKEN" not in st.secrets or "REPO_NAME" not in st.secrets:
         return False, "GitHub credentials not found in Streamlit Secrets."
 
     token = st.secrets["GITHUB_TOKEN"]
     repo = st.secrets["REPO_NAME"]
-    url = f"https://api.github.com/repos/{repo}/contents/{file_path}"
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github.v3+json"
     }
 
-    # 1. Try fetching current file content and sha from GitHub
+    # Try 'main' first, fallback to 'master'
+    branch = "main"
+    url = f"https://api.github.com/repos/{repo}/contents/{file_path}?ref={branch}"
     res = requests.get(url, headers=headers)
-    
+    if res.status_code == 404:
+        branch = "master"
+        url = f"https://api.github.com/repos/{repo}/contents/{file_path}?ref={branch}"
+        res = requests.get(url, headers=headers)
+
     sha = None
     current_df = pd.DataFrame(columns=["Date", "Task", "AssignedMember"])
     
@@ -37,29 +41,26 @@ def update_github_csv(new_rows_df, file_path="Planning.csv"):
         sha = file_data["sha"]
         current_content = base64.b64decode(file_data["content"]).decode("utf-8")
         current_df = pd.read_csv(pd.io.common.StringIO(current_content))
-    elif res.status_code == 404:
-        # File doesn't exist yet, we will create it fresh
-        pass
-    else:
+    elif res.status_code != 404:
         return False, f"Failed to check {file_path} on GitHub: {res.text}"
 
-    # 2. Append new generated rows
+    # Append new rows
     updated_df = pd.concat([current_df, new_rows_df], ignore_index=True)
     updated_csv_str = updated_df.to_csv(index=False)
 
-    # 3. Commit updated CSV back to GitHub
+    put_url = f"https://api.github.com/repos/{repo}/contents/{file_path}"
     encoded_content = base64.b64encode(updated_csv_str.encode("utf-8")).decode("utf-8")
     payload = {
         "message": "Auto-update Planning.csv from Streamlit Schedule Generator",
         "content": encoded_content,
-        "branch": "main"
+        "branch": branch
     }
     if sha:
         payload["sha"] = sha
 
-    put_res = requests.put(url, headers=headers, data=json.dumps(payload))
+    put_res = requests.put(put_url, headers=headers, data=json.dumps(payload))
     if put_res.status_code in [200, 201]:
-        return True, "Successfully updated Planning.csv in GitHub!"
+        return True, f"Successfully updated Planning.csv in GitHub ({branch} branch)!"
     else:
         return False, f"Failed to commit to GitHub: {put_res.text}"
 
@@ -87,37 +88,59 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
     task_id_to_name = dict(zip(tasks_df['id'].astype(str), tasks_df['name'].astype(str)))
     task_names = tasks_df['name'].dropna().astype(str).tolist()
 
+    # --- SESSION STATE INITIALIZATION FOR SETTINGS ---
+    if "start_date" not in st.session_state:
+        st.session_state.start_date = date.today()
+    if "num_sabbaths" not in st.session_state:
+        st.session_state.num_sabbaths = 2
+    if "elder_choice" not in st.session_state:
+        st.session_state.elder_choice = 1
+
+    default_ss = [t for t in ["SSM", "SST", "SS5"] if t in task_names]
+    default_cu = [t for t in ["SSM", "SST", "SS5", "CUM", "CUVK", "CUVP", "CUFN", "CUTA", "CUTL"] if t in task_names]
+
+    groups_default = {
+        "s1_grp": ("Tanora Zokiny", default_ss),
+        "s2_grp": ("Zatovo", default_ss),
+        "s3_grp": ("Lehibe I", default_ss),
+        "s4_grp": ("Lehibe II", default_ss),
+        "s5_grp": ("MINENF", default_cu)
+    }
+
+    for key, (g_name, g_tasks) in groups_default.items():
+        if f"{key}_name" not in st.session_state:
+            st.session_state[f"{key}_name"] = g_name
+        if f"{key}_tasks" not in st.session_state:
+            st.session_state[f"{key}_tasks"] = g_tasks
+
     # --- SIDEBAR: SETTINGS ---
     st.sidebar.header("2. Planning Period & Settings")
-    start_date = st.sidebar.date_input("Start Date", value=date.today(), key="start_date_input")
-    num_sabbaths = st.sidebar.slider("Number of Sabbaths to Generate", min_value=1, max_value=10, value=2, key="num_sabbaths_slider")
+    start_date = st.sidebar.date_input("Start Date", value=st.session_state.start_date, key="start_date")
+    num_sabbaths = st.sidebar.slider("Number of Sabbaths to Generate", min_value=1, max_value=10, value=st.session_state.num_sabbaths, key="num_sabbaths")
 
     st.sidebar.header("3. Special Rules Configuration")
     elder_sabbath_choice = st.sidebar.selectbox(
         "Reserve CUTL for Elder on which Sabbath of Trimester Start Months (Jan, Apr, Jul, Oct)?",
         options=[1, 2, 3, 4, 5],
-        index=1,
-        key="elder_sabbath_selectbox"
+        index=st.session_state.elder_choice,
+        key="elder_choice"
     )
 
     st.sidebar.header("4. Group Rule Configuration")
-    default_ss = [t for t in ["SSM", "SST", "SS5"] if t in task_names]
-    default_cu = [t for t in ["SSM", "SST", "SS5", "CUM", "CUVK", "CUVP", "CUFN", "CUTA", "CUTL"] if t in task_names]
+    sabbath_1_group = st.sidebar.text_input("1st Sabbath Group", key="s1_grp_name")
+    sabbath_1_tasks = st.sidebar.multiselect("1st Sabbath Group Tasks", options=task_names, key="s1_grp_tasks")
 
-    sabbath_1_group = st.sidebar.text_input("1st Sabbath Group", value="Tanora Zokiny", key="s1_grp")
-    sabbath_1_tasks = st.sidebar.multiselect("1st Sabbath Group Tasks", options=task_names, default=default_ss, key="s1_tsk")
+    sabbath_2_group = st.sidebar.text_input("2nd Sabbath Group", key="s2_grp_name")
+    sabbath_2_tasks = st.sidebar.multiselect("2nd Sabbath Group Tasks", options=task_names, key="s2_grp_tasks")
 
-    sabbath_2_group = st.sidebar.text_input("2nd Sabbath Group", value="Zatovo", key="s2_grp")
-    sabbath_2_tasks = st.sidebar.multiselect("2nd Sabbath Group Tasks", options=task_names, default=default_ss, key="s2_tsk")
+    sabbath_3_group = st.sidebar.text_input("3rd Sabbath Group", key="s3_grp_name")
+    sabbath_3_tasks = st.sidebar.multiselect("3rd Sabbath Group Tasks", options=task_names, key="s3_grp_tasks")
 
-    sabbath_3_group = st.sidebar.text_input("3rd Sabbath Group", value="Lehibe I", key="s3_grp")
-    sabbath_3_tasks = st.sidebar.multiselect("3rd Sabbath Group Tasks", options=task_names, default=default_ss, key="s3_tsk")
+    sabbath_4_group = st.sidebar.text_input("4th Sabbath Group", key="s4_grp_name")
+    sabbath_4_tasks = st.sidebar.multiselect("4th Sabbath Group Tasks", options=task_names, key="s4_grp_tasks")
 
-    sabbath_4_group = st.sidebar.text_input("4th Sabbath Group", value="Lehibe II", key="s4_grp")
-    sabbath_4_tasks = st.sidebar.multiselect("4th Sabbath Group Tasks", options=task_names, default=default_ss, key="s4_tsk")
-
-    sabbath_5_group = st.sidebar.text_input("5th Sabbath Group", value="MINENF", key="s5_grp")
-    sabbath_5_tasks = st.sidebar.multiselect("5th Sabbath Group Tasks", options=task_names, default=default_cu, key="s5_tsk")
+    sabbath_5_group = st.sidebar.text_input("5th Sabbath Group", key="s5_grp_name")
+    sabbath_5_tasks = st.sidebar.multiselect("5th Sabbath Group Tasks", options=task_names, key="s5_grp_tasks")
 
     # --- CALCULATE SABBATH DATES ---
     def get_next_saturdays(start_dt, count):
@@ -220,7 +243,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                     eligible_df = members_df[(members_df['id'].isin(competent_member_ids)) & (members_df['available'] == True)]
                     
                     is_trimester_start_month = sat.month in [1, 4, 7, 10]
-                    if t_name == "CUTL" and is_trimester_start_month and s_idx == elder_sabbath_choice:
+                    if t_name == "CUTL" and is_trimester_start_month and s_idx == (elder_sabbath_choice + 1): # index 0-4 maps to 1-5
                         if 'Elder' in members_df.columns:
                             elder_filter = members_df['Elder'].astype(str).str.upper().isin(['TRUE', 'YES', '1'])
                             elder_member_ids = members_df[elder_filter]['id'].tolist()
