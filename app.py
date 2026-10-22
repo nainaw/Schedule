@@ -54,7 +54,7 @@ def push_file_to_github(file_path, content_str, commit_message):
 
 # --- AUTO-PUBLISH PUBLIC HTML PAGE FOR GITHUB PAGES ---
 def publish_public_schedule_page(planning_df, num_latest=3):
-    """Generates a clean, professional HTML index.html for members and pushes it to GitHub."""
+    """Generates a clean, mobile-friendly professional HTML index.html for members and pushes it to GitHub."""
     if planning_df is None or planning_df.empty:
         return
     
@@ -86,8 +86,8 @@ def publish_public_schedule_page(planning_df, num_latest=3):
         for _, row in day_df.iterrows():
             rows_html += f"""
             <tr>
-                <td style="font-weight: 600; color: #2c3e50; width: 35%;">{row['Task']}</td>
-                <td style="color: #34495e; width: 65%;">{row['AssignedMember']}</td>
+                <td style="font-weight: 600; color: #2c3e50; width: 40%;">{row['Task']}</td>
+                <td style="color: #34495e; width: 60%;">{row['AssignedMember']}</td>
             </tr>
             """
             
@@ -98,8 +98,8 @@ def publish_public_schedule_page(planning_df, num_latest=3):
                 <table>
                     <thead>
                         <tr>
-                            <th>Tompon-draharaha (Task)</th>
-                            <th>Anarana (Assigned Member)</th>
+                            <th>Task</th>
+                            <th>Assigned Member</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -122,7 +122,7 @@ def publish_public_schedule_page(planning_df, num_latest=3):
             font-family: 'Inter', sans-serif;
             background-color: #f8fafc;
             margin: 0;
-            padding: 20px;
+            padding: 15px;
             color: #1e293b;
         }}
         .container {{
@@ -132,48 +132,56 @@ def publish_public_schedule_page(planning_df, num_latest=3):
         .header-box {{
             background: linear-gradient(135deg, #2563eb, #1d4ed8);
             color: white;
-            padding: 30px;
+            padding: 25px 20px;
             border-radius: 12px;
             text-align: center;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-            margin-bottom: 30px;
+            margin-bottom: 25px;
         }}
         .header-box h1 {{
-            margin: 0 0 10px 0;
-            font-size: 24px;
+            margin: 0 0 8px 0;
+            font-size: 22px;
             font-weight: 700;
         }}
         .header-box p {{
             margin: 0;
             opacity: 0.9;
-            font-size: 14px;
+            font-size: 13px;
         }}
         .sabbath-card {{
             background: white;
             border-radius: 12px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-            margin-bottom: 25px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            margin-bottom: 20px;
             overflow: hidden;
             border: 1px solid #e2e8f0;
         }}
         .card-header {{
             background-color: #f1f5f9;
             color: #0f172a;
-            padding: 15px 20px;
-            font-size: 16px;
+            padding: 14px 18px;
+            font-size: 15px;
             font-weight: 600;
             border-bottom: 1px solid #e2e8f0;
         }}
         .table-responsive {{
+            width: 100%;
             overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
         }}
         table {{
             width: 100%;
             border-collapse: collapse;
             text-align: left;
+            white-space: nowrap;
+        }}
+        @media (min-width: 480px) {{
+            table {{
+                white-space: normal;
+            }}
         }}
         th, td {{
-            padding: 12px 20px;
+            padding: 12px 18px;
             font-size: 14px;
             border-bottom: 1px solid #f1f5f9;
         }}
@@ -182,7 +190,7 @@ def publish_public_schedule_page(planning_df, num_latest=3):
             color: #64748b;
             font-weight: 600;
             text-transform: uppercase;
-            font-size: 12px;
+            font-size: 11px;
             letter-spacing: 0.05em;
         }}
         tr:last-child td {{
@@ -193,8 +201,8 @@ def publish_public_schedule_page(planning_df, num_latest=3):
         }}
         .footer {{
             text-align: center;
-            margin-top: 40px;
-            font-size: 13px;
+            margin-top: 30px;
+            font-size: 12px;
             color: #94a3b8;
         }}
     </style>
@@ -215,7 +223,7 @@ def publish_public_schedule_page(planning_df, num_latest=3):
 </body>
 </html>
 """
-    push_file_to_github("index.html", html_content, "Auto-publish professional index.html for GitHub Pages")
+    push_file_to_github("index.html", html_content, "Auto-publish mobile-friendly professional index.html")
 
 # --- SIDEBAR: REFRESH & QUICK ACTIONS ---
 st.sidebar.header("🛠️ System Controls")
