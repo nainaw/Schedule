@@ -52,10 +52,9 @@ def push_file_to_github(file_path, content_str, commit_message):
     res = requests.put(url, headers=headers, data=json.dumps(payload))
     return res.status_code in [200, 201]
 
-
 # --- AUTO-PUBLISH PUBLIC HTML PAGE FOR GITHUB PAGES ---
 def publish_public_schedule_page(planning_df, num_latest=3):
-    """Generates a clean HTML index.html for members and pushes it to GitHub."""
+    """Generates a clean, professional HTML index.html for members and pushes it to GitHub."""
     if planning_df is None or planning_df.empty:
         return
     
@@ -76,37 +75,138 @@ def publish_public_schedule_page(planning_df, num_latest=3):
         latest_dates_slice.append(reference_date)
 
     filtered_plan = valid_plan[valid_plan['parsed_date'].dt.date.isin(latest_dates_slice)]
-    display_df = filtered_plan.drop(columns=['parsed_date'])
     
-    pivot_df = display_df.pivot(index='Task', columns='Date', values='AssignedMember').reset_index()
-    
+    # Build professional HTML cards for each Sabbath date
+    sabbath_sections_html = ""
+    for d in sorted(latest_dates_slice):
+        date_str = d.strftime('%d/%m/%Y')
+        day_df = filtered_plan[filtered_plan['parsed_date'].dt.date == d]
+        
+        rows_html = ""
+        for _, row in day_df.iterrows():
+            rows_html += f"""
+            <tr>
+                <td style="font-weight: 600; color: #2c3e50; width: 35%;">{row['Task']}</td>
+                <td style="color: #34495e; width: 65%;">{row['AssignedMember']}</td>
+            </tr>
+            """
+            
+        sabbath_sections_html += f"""
+        <div class="sabbath-card">
+            <div class="card-header">📅 Sabata : {date_str}</div>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Tompon-draharaha (Task)</th>
+                            <th>Anarana (Assigned Member)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows_html}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        """
+
     html_content = f"""<!DOCTYPE html>
 <html lang="mg">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fandaharana Sabata - Church Schedule</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body {{ font-family: Arial, sans-serif; background-color: #f4f6f9; margin: 0; padding: 20px; color: #333; }}
-        .container {{ max-width: 950px; margin: auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }}
-        h1 {{ color: #2c3e50; text-align: center; }}
-        p.subtitle {{ text-align: center; color: #7f8c8d; margin-bottom: 30px; }}
-        .table-responsive {{ overflow-x: auto; }}
-        table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
-        th, td {{ border: 1px solid #ddd; padding: 12px; text-align: center; font-size: 0.95em; }}
-        th {{ background-color: #3498db; color: white; }}
-        tr:nth-child(even) {{ background-color: #f9f9f9; }}
-        .footer {{ text-align: center; margin-top: 40px; font-size: 0.85em; color: #aaa; }}
+        body {{
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+            margin: 0;
+            padding: 20px;
+            color: #1e293b;
+        }}
+        .container {{
+            max-width: 800px;
+            margin: auto;
+        }}
+        .header-box {{
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: white;
+            padding: 30px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+        }}
+        .header-box h1 {{
+            margin: 0 0 10px 0;
+            font-size: 24px;
+            font-weight: 700;
+        }}
+        .header-box p {{
+            margin: 0;
+            opacity: 0.9;
+            font-size: 14px;
+        }}
+        .sabbath-card {{
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            margin-bottom: 25px;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+        }}
+        .card-header {{
+            background-color: #f1f5f9;
+            color: #0f172a;
+            padding: 15px 20px;
+            font-size: 16px;
+            font-weight: 600;
+            border-bottom: 1px solid #e2e8f0;
+        }}
+        .table-responsive {{
+            overflow-x: auto;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }}
+        th, td {{
+            padding: 12px 20px;
+            font-size: 14px;
+            border-bottom: 1px solid #f1f5f9;
+        }}
+        th {{
+            background-color: #ffffff;
+            color: #64748b;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 0.05em;
+        }}
+        tr:last-child td {{
+            border-bottom: none;
+        }}
+        tr:hover {{
+            background-color: #f8fafc;
+        }}
+        .footer {{
+            text-align: center;
+            margin-top: 40px;
+            font-size: 13px;
+            color: #94a3b8;
+        }}
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>⛪ Fandaharana Sabata</h1>
-        <p class="subtitle">Fandaharana farany ho an'ny fiangonana (Church Schedule)</p>
-        
-        <div class="table-responsive">
-            {pivot_df.to_html(index=False, classes='schedule-table')}
+        <div class="header-box">
+            <h1>⛪ Fandaharana Sabata</h1>
+            <p>Fandaharana farany sy drafitry ny asan'ny fiangonana</p>
         </div>
+        
+        {sabbath_sections_html}
         
         <div class="footer">
             <p>Namboarina tamin'ny alalan'ny rafitra mandeha ho azy (Automated Church Schedule Generator)</p>
@@ -115,8 +215,7 @@ def publish_public_schedule_page(planning_df, num_latest=3):
 </body>
 </html>
 """
-    push_file_to_github("index.html", html_content, "Auto-publish index.html for GitHub Pages")
-
+    push_file_to_github("index.html", html_content, "Auto-publish professional index.html for GitHub Pages")
 
 # --- SIDEBAR: REFRESH & QUICK ACTIONS ---
 st.sidebar.header("🛠️ System Controls")
