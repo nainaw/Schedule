@@ -357,7 +357,12 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
         save_config_to_github(current_config)
 
     # --- MAIN NAVIGATION TABS ---
-    tab_gen, tab_crud, tab_view = st.tabs(["🚀 Schedule Generator & Quick Swap", "📊 Data Management (CRUD)", "👥 Member Schedule View"])
+    tab_gen, tab_analytics, tab_crud, tab_view = st.tabs([
+        "🚀 Schedule Generator & Quick Swap", 
+        "🔍 Rotation Analytics & Query",
+        "📊 Data Management (CRUD)", 
+        "👥 Member Schedule View"
+    ])
 
     # ================= TAB 1: SCHEDULE GENERATOR & QUICK SWAP =================
     with tab_gen:
@@ -571,7 +576,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
         # --- EMERGENCY REPLACEMENT & VISITOR TASK SWAP TOOL ---
         st.markdown("---")
         st.subheader("🚑 Smart Emergency Replacement & Visitor Swap")
-        st.markdown("Select a Sabbath and task to view intelligent candidate recommendations for replacing an ill member, or assign a visiting guest.")
+        st.markdown("Select a Sabbath and task to view intelligent candidate recommendations (sorted oldest-first by last performed date).")
 
         if planning_df is not None and not planning_df.empty:
             planning_df['parsed_date'] = pd.to_datetime(planning_df['Date'], format='%d/%m/%Y', dayfirst=True, errors='coerce')
@@ -590,14 +595,14 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                 current_person = current_assigned[0] if len(current_assigned) > 0 else "Unknown"
                 st.info(f"Current assigned person for **{selected_swap_task}** on **{date_str_fmt}**: **{current_person}**")
                 
-                # Intelligent Recommendation Engine
+                # Ranked Smart Recommendation Engine (Oldest last-performed date first)
                 t_id = task_name_to_id.get(selected_swap_task, "")
-                recommended_members = []
+                recommended_members_ranked = []
+                
                 if t_id and members_df is not None and competencies_df is not None:
                     competent_member_ids = competencies_df[competencies_df['tasks_id'].astype(str) == t_id]['member_id'].tolist()
                     eligible_df = members_df[(members_df['id'].isin(competent_member_ids)) & (members_df['available'] == True)]
                     
-                    # Check if this date falls on a 3rd Sabbath to apply Youth restriction filter if needed
                     first_day_of_month = date(selected_swap_date.year, selected_swap_date.month, 1)
                     first_sat = first_day_of_month + timedelta(days=(5 - first_day_of_month.weekday()) % 7)
                     s_idx = ((selected_swap_date - first_sat).days // 7) + 1
@@ -606,17 +611,44 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                         youth_mask = members_df['Youth'].astype(str).str.upper().isin(['TRUE', 'YES', '1']) | (members_df['Youth'] == True)
                         eligible_df = eligible_df[youth_mask]
                         
-                    recommended_members = eligible_df['name'].tolist()
+                    eligible_names = eligible_df['name'].tolist()
+                    
+                    # Calculate last performed date for each eligible member for this specific task
+                    task_plan = planning_df[planning_df['Task'] == selected_swap_task].dropna(subset=['parsed_date'])
+                    
+                    member_scores = []
+                    default_past_date = date(2000, 1, 1)
+                    
+                    for m in eligible_names:
+                        m_history = task_plan[task_plan['AssignedMember'] == m]
+                        if not m_history.empty:
+                            last_d = m_history['parsed_date'].max().date()
+                        else:
+                            last_d = default_past_date
+                        member_scores.append((m, last_d))
+                    
+                    # Sort candidates so those who performed the task longest ago appear first
+                    member_scores.sort(key=lambda x: x[1])
+                    
+                    for m, d in member_scores:
+                        d_str = "Never" if d == default_past_date else d.strftime('%d/%m/%Y')
+                        recommended_members_ranked.append((m, f"{m} (Last done: {d_str})"))
 
-                swap_mode = st.radio("Replacement Type", options=["Recommended Church Member", "All Members List", "Custom Visitor / Guest (e.g., Visiting Pastor)"], key="swap_mode_radio")
+                swap_mode = st.radio("Replacement Type", options=["Recommended Church Member (Sorted Oldest-First)", "All Members List", "Custom Visitor / Guest (e.g., Visiting Pastor)"], key="swap_mode_radio")
                 
                 new_assignee = ""
-                if swap_mode == "Recommended Church Member":
-                    if recommended_members:
-                        st.success(f"✨ **Smart Recommendations** (Competent & Available):")
-                        new_assignee = st.selectbox("Select Best Available Replacement", options=recommended_members, key="swap_recommended_sel")
+                if swap_mode == "Recommended Church Member (Sorted Oldest-First)":
+                    if recommended_members_ranked:
+                        st.success(f"✨ **Smart Recommendations** (Sorted by longest time since last performed task):")
+                        chosen_tuple = st.selectbox(
+                            "Select Best Available Replacement", 
+                            options=recommended_members_ranked, 
+                            format_func=lambda x: x[1],
+                            key="swap_recommended_sel"
+                        )
+                        new_assignee = chosen_tuple[0]
                     else:
-                        st.warning("⚠️ No competent/available members found matching criteria for this task. Try selecting from all members.")
+                        st.warning("⚠️ No competent/available members found matching criteria for this task.")
                         new_assignee = st.selectbox("Select Replacement Member", options=members_df['name'].tolist() if members_df is not None else [], key="swap_all_fallback_sel")
                 elif swap_mode == "All Members List":
                     all_member_names = members_df['name'].tolist() if members_df is not None else []
@@ -645,7 +677,65 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
         else:
             st.info("Planning history is empty.")
 
-    # ================= TAB 2: DATA MANAGEMENT (CRUD) =================
+    # ================= TAB 2: ROTATION ANALYTICS & QUERY (NEW) =================
+    with tab_analytics:
+        st.title("🔍 Rotation Analytics & Query")
+        st.markdown("Query historical assignments and member rotation history (replicating your spreadsheet lookup filter).")
+
+        if planning_df is not None and not planning_df.empty:
+            planning_df['parsed_date'] = pd.to_datetime(planning_df['Date'], format='%d/%m/%Y', dayfirst=True, errors='coerce')
+            valid_p_df = planning_df.dropna(subset=['parsed_date']).sort_values(by='parsed_date', ascending=False)
+            
+            col_left, col_right = st.columns(2)
+            
+            # --- FILTER 1: WHO DOES WHAT WHEN? (TASK VIEW) ---
+            with col_left:
+                st.subheader("📋 Task History: Who does what when?")
+                sel_task_query = st.selectbox("Select Fanompoana (Task)", options=task_names, key="query_task_sel")
+                
+                t_id_q = task_name_to_id.get(sel_task_query, "")
+                if t_id_q and members_df is not None and competencies_df is not None:
+                    comp_m_ids = competencies_df[competencies_df['tasks_id'].astype(str) == t_id_q]['member_id'].tolist()
+                    comp_members = members_df[members_df['id'].isin(comp_m_ids)]['name'].tolist()
+                    
+                    task_history_df = valid_p_df[valid_p_df['Task'] == sel_task_query]
+                    
+                    query_rows = []
+                    default_p_date = date(2000, 1, 1)
+                    
+                    for m in comp_members:
+                        m_hist = task_history_df[task_history_df['AssignedMember'] == m]
+                        if not m_hist.empty:
+                            last_d = m_hist['parsed_date'].max().date()
+                            d_display = last_d.strftime('%d/%m/%Y')
+                        else:
+                            last_d = default_p_date
+                            d_display = "Tsy mbola nanao (Never)"
+                        query_rows.append({"Anarana (Member)": m, "Daty farany (Last Date)": d_display, "_sort": last_d})
+                    
+                    query_result_df = pd.DataFrame(query_rows).sort_values(by="_sort", ascending=True).drop(columns=['_sort'])
+                    st.markdown(f"**Competent Members for {sel_task_query} (Sorted Oldest-First):**")
+                    st.dataframe(query_result_df, use_container_width=True, hide_index=True)
+            
+            # --- FILTER 2: WHEN DOES A MEMBER DO A TASK? (MEMBER VIEW) ---
+            with col_right:
+                st.subheader("👤 Member History: When does a member do tasks?")
+                all_m_names = sorted(members_df['name'].dropna().unique().tolist()) if members_df is not None else []
+                sel_member_query = st.selectbox("Select Anarana (Member)", options=all_m_names, key="query_member_sel")
+                
+                m_history_df = valid_p_df[valid_p_df['AssignedMember'] == sel_member_query]
+                
+                if not m_history_df.empty:
+                    m_display_df = m_history_df[['Date', 'Task']].copy()
+                    m_display_df.columns = ['Daty (Date)', 'Andraikitra (Task)']
+                    st.markdown(f"**Assignment History for {sel_member_query}:**")
+                    st.dataframe(m_display_df, use_container_width=True, hide_index=True)
+                else:
+                    st.info(f"No past assignment records found for {sel_member_query}.")
+        else:
+            st.info("No planning history available yet. Generate a schedule first!")
+
+    # ================= TAB 3: DATA MANAGEMENT (CRUD) =================
     with tab_crud:
         st.title("📊 Data Management (Worksheet Editor)")
         st.markdown("View and edit your datasets directly. Changes are saved and committed straight to GitHub instantly.")
@@ -674,7 +764,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
         else:
             st.warning(f"Could not load {dataset_choice}.")
 
-    # ================= TAB 3: MEMBER SCHEDULE VIEW =================
+    # ================= TAB 4: MEMBER SCHEDULE VIEW =================
     with tab_view:
         st.title("👥 Member Schedule View")
         st.markdown("Internal preview of what church members will see on the public web page.")
