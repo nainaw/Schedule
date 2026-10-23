@@ -70,7 +70,7 @@ def prune_planning_data(planning_df, max_rows=1000):
     return df_copy.drop(columns=['parsed_date'], errors='ignore')
 
 
-# --- AUTO-PUBLISH PUBLIC HTML PAGE FOR GITHUB PAGES (TABLE MATRIX LAYOUT) ---
+# --- AUTO-PUBLISH PUBLIC HTML PAGE FOR GITHUB PAGES (COMPACT MATRIX TABLE) ---
 def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
     """Generates a compact, print-optimized matrix table index.html fitting easily onto a single page."""
     if planning_df is None or planning_df.empty:
@@ -115,25 +115,21 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
     date_cols_str = [d.strftime('%d/%m/%Y') for d in latest_dates_slice]
     pivot_table = filtered_plan.pivot_table(index='CleanTask', columns='Date', values='CleanMember', aggfunc='first')
     
-    # Reindex rows by Tasks.csv order
     if ordered_task_names:
         existing_tasks = [t for t in ordered_task_names if t in pivot_table.index]
         pivot_table = pivot_table.reindex(existing_tasks)
 
-    # Reindex columns by date order
     existing_date_cols = [c for c in date_cols_str if c in pivot_table.columns]
     pivot_table = pivot_table[existing_date_cols]
 
-    # Build HTML Table Headers
     th_html = "<th>Fanompoana (Task)</th>"
     for d_str in existing_date_cols:
         th_html += f"<th>{d_str}</th>"
 
-    # Build HTML Table Rows
     tr_html = ""
     for task_code, row_data in pivot_table.iterrows():
         t_display = task_desc_map.get(task_code, task_code)
-        tr_html += f"<tr><td class='task-cell'><strong>{task_code}</strong><br><span style='font-size:11px; color:#666;'>{t_display}</span></td>"
+        tr_html += f"<tr><td class='task-cell'><strong>{task_code}</strong><br><span style='font-size:11px; color:#555;'>{t_display}</span></td>"
         for d_str in existing_date_cols:
             member_val = row_data.get(d_str, "-")
             if pd.isna(member_val):
@@ -153,38 +149,38 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
             font-family: 'Inter', sans-serif;
             background-color: #f4f7f6;
             margin: 0;
-            padding: 15px;
+            padding: 10px;
             color: #2c3e50;
         }}
         .container {{
-            max-width: 950px;
+            max-width: 1000px;
             margin: auto;
             background: white;
-            padding: 25px;
-            border-radius: 10px;
+            padding: 20px;
+            border-radius: 8px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
         }}
         .main-title {{
             text-align: center;
             color: #1a252f;
-            font-size: 22px;
+            font-size: 20px;
             font-weight: 800;
             letter-spacing: -0.5px;
-            margin-top: 5px;
-            margin-bottom: 20px;
+            margin-top: 0px;
+            margin-bottom: 15px;
             text-transform: uppercase;
         }}
         .btn-print {{
             display: block;
             width: fit-content;
-            margin: 0 auto 20px auto;
+            margin: 0 auto 15px auto;
             background-color: #2c3e50;
             color: white;
             border: none;
-            padding: 10px 20px;
+            padding: 8px 16px;
             border-radius: 6px;
             font-weight: 600;
-            font-size: 13px;
+            font-size: 12px;
             cursor: pointer;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             transition: background 0.2s;
@@ -196,39 +192,43 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
         table {{
             width: 100%;
             border-collapse: collapse;
-            margin-top: 10px;
-            font-size: 13px;
+            margin-top: 5px;
+            font-size: 12px;
         }}
         th, td {{
-            border: 1px solid #dcdde1;
-            padding: 8px 10px;
+            border: 1px solid #cbd5e1;
+            padding: 6px 8px;
             text-align: left;
         }}
         th {{
-            background-color: #f1f2f6;
-            color: #2f3640;
+            background-color: #f1f5f9;
+            color: #1e293b;
             font-weight: 700;
             text-align: center;
         }}
         th:first-child, td:first-child {{
             text-align: left;
-            width: 25%;
+            width: 28%;
         }}
         td {{
-            color: #2f3640;
+            color: #334155;
         }}
         .footer {{
             text-align: center;
-            margin-top: 25px;
-            font-size: 11px;
-            color: #718093;
+            margin-top: 15px;
+            font-size: 10px;
+            color: #64748b;
         }}
         @media print {{
+            @page {{
+                size: A4 portrait;
+                margin: 10mm;
+            }}
             .btn-print {{ display: none; }}
             body {{ background-color: white; padding: 0; margin: 0; }}
             .container {{ box-shadow: none; padding: 0; max-width: 100%; }}
-            table {{ font-size: 11px; }}
-            th, td {{ padding: 5px 6px; }}
+            table {{ font-size: 10.5px; }}
+            th, td {{ padding: 4px 6px; }}
         }}
     </style>
 </head>
@@ -236,7 +236,7 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
     <div class="container">
         <h1 class="main-title">Anjara Fanompoana Isan-Tsabata</h1>
         
-        <button class="btn-print" onclick="window.print()">📥 Haka ny PDF / Pirinty (A4)</button>
+        <button class="btn-print" onclick="window.print()">📥 Haka ny PDF / Pirinty (A4 Single Page)</button>
         
         <table>
             <thead>
@@ -256,7 +256,7 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
 </body>
 </html>
 """
-    push_file_to_github("index.html", html_content, "Auto-publish compact matrix table layout index.html for single-page printing")
+    push_file_to_github("index.html", html_content, "Auto-publish single-page matrix table index.html")
 
 
 # --- SIDEBAR: REFRESH & QUICK ACTIONS ---
@@ -813,7 +813,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
 
             unique_dates = valid_plan['parsed_date'].dt.date.unique()
 
-            if len(unique_dates) > 0:
+            if len(start_date := unique_dates) > 0:
                 num_latest_to_show = st.slider("Number of latest Sabbath batches to display", min_value=1, max_value=5, value=3)
                 
                 today = date.today()
@@ -826,7 +826,6 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
 
                 filtered_plan = valid_plan[valid_plan['parsed_date'].dt.date.isin(latest_dates_slice)].copy()
                 
-                # Apply Tasks.csv ordering to pivot rows
                 if task_names:
                     task_cat = pd.CategoricalDtype(categories=task_names, ordered=True)
                     filtered_plan['TaskOrder'] = filtered_plan['NormalizedTask'].astype(task_cat)
