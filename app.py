@@ -53,7 +53,7 @@ def push_file_to_github(file_path, content_str, commit_message):
     return res.status_code in [200, 201]
 
 
-# --- AUTOMATED PLANNING PRUNING (KEEPS APP FLUID & FAST) ---
+# --- AUTOMATED PLANNING PRUNING ---
 def prune_planning_data(planning_df, max_rows=1000):
     """Trims oldest Sabbath dates if Planning.csv exceeds max_rows to maintain peak performance."""
     if planning_df is None or len(planning_df) <= max_rows:
@@ -289,15 +289,19 @@ tasks_df = load_github_csv("Tasks.csv")
 planning_df = load_github_csv("Planning.csv")
 
 if members_df is not None and competencies_df is not None and tasks_df is not None:
-    # Build bidirectional dictionaries
-    task_id_to_name = dict(zip(tasks_df['id'].astype(str).str.strip(), tasks_df['name'].astype(str).str.strip()))
-    task_name_to_id = dict(zip(tasks_df['name'].astype(str).str.strip(), tasks_df['id'].astype(str).str.strip()))
-    task_names = tasks_df['name'].dropna().astype(str).str.strip().tolist()
+    # Clean string helper
+    def clean_s(val):
+        return str(val).strip() if pd.notna(val) else ""
+
+    # Build maps
+    task_id_to_name = {clean_s(r['id']): clean_s(r['name']) for _, r in tasks_df.iterrows()}
+    task_name_to_id = {clean_s(r['name']): clean_s(r['id']) for _, r in tasks_df.iterrows()}
+    task_names = [clean_s(x) for x in tasks_df['name'].dropna().tolist() if clean_s(x)]
 
     default_ss = [t for t in ["SSM", "SST", "SS5"] if t in task_names]
     default_cu = [t for t in ["SSM", "SST", "SS5", "CUM", "CUVK", "CUVP", "CUFN", "CUTA", "CUTL"] if t in task_names]
 
-    # --- SIDEBAR SETTINGS (LOADED FROM GITHUB CONFIG) ---
+    # --- SIDEBAR SETTINGS ---
     st.sidebar.header("1. Planning Period & Settings")
     start_date_val = datetime.strptime(config_data.get("start_date", str(date.today())), "%Y-%m-%d").date() if "start_date" in config_data else date.today()
     start_date = st.sidebar.date_input("Start Date", value=start_date_val, key="start_date_input")
@@ -365,6 +369,40 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
         "👥 Member Schedule View"
     ])
 
+    # Pre-process Planning DF for robust searches
+    if planning_df is not None and not planning_df.empty:
+        planning_df['parsed_date'] = pd.to_datetime(planning_df['Date'], format='%d/%m/%Y', dayfirst=True, errors='coerce')
+        planning_df['CleanMember'] = planning_df['AssignedMember'].astype(str).str.strip()
+        planning_df['CleanTask'] = planning_df['Task'].astype(str).str.strip()
+        
+        # Normalize task names in planning_df so '1' becomes 'SSM', etc.
+        planning_df['NormalizedTask'] = planning_df['CleanTask'].apply(lambda x: task_id_to_name.get(x, x))
+
+    # Helper function: Finds max performed date for a member & task across all representations
+    def get_last_performed_date(p_df, member_name, task_name):
+        if p_df is None or p_df.empty:
+            return None
+        
+        t_id = task_name_to_id.get(task_name, "")
+        
+        m_upper = member_name.strip().upper()
+        t_upper = task_name.strip().upper()
+        tid_upper = t_id.upper() if t_id else ""
+        
+        # Match by member name AND (task name OR task id OR normalized task name)
+        sub = p_df[
+            (p_df['CleanMember'].str.upper() == m_upper) &
+            (
+                (p_df['CleanTask'].str.upper() == t_upper) |
+                (p_df['CleanTask'].str.upper() == tid_upper) |
+                (p_df['NormalizedTask'].str.upper() == t_upper)
+            )
+        ].dropna(subset=['parsed_date'])
+        
+        if not sub.empty:
+            return sub['parsed_date'].max().date()
+        return None
+
     # ================= TAB 1: SCHEDULE GENERATOR & QUICK SWAP =================
     with tab_gen:
         st.title("⛪ Church Schedule Planning Generator")
@@ -396,20 +434,12 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                 selected_saturdays.append((sat, sabbath_idx))
 
         # Historical Tracking
-        available_members = [m.strip() for m in members_df[members_df['available'] == True]['name'].tolist()]
+        available_members = [clean_s(m) for m in members_df[members_df['available'] == True]['name'].tolist()]
         last_performed_date = {m: {} for m in available_members}
         last_sabbath_assigned_members = set()
 
-        existing_planning_str, _, _ = get_github_repo_file("Planning.csv")
-        if existing_planning_str:
-            planning_df = pd.read_csv(pd.io.common.StringIO(existing_planning_str))
-
         existing_dates = set()
         if planning_df is not None and not planning_df.empty:
-            planning_df['parsed_date'] = pd.to_datetime(planning_df['Date'], format='%d/%m/%Y', dayfirst=True, errors='coerce')
-            planning_df['CleanMember'] = planning_df['AssignedMember'].astype(str).str.strip()
-            planning_df['CleanTask'] = planning_df['Task'].astype(str).str.strip()
-            
             existing_dates = set(planning_df['parsed_date'].dt.date.dropna())
             
             if not planning_df['parsed_date'].isna().all():
@@ -465,8 +495,8 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
 
                     task_scarcity = []
                     for _, task in tasks_df.iterrows():
-                        t_id = str(task['id']).strip()
-                        t_name = str(task['name']).strip()
+                        t_id = clean_s(task['id'])
+                        t_name = clean_s(task['name'])
                         
                         if active_group and t_name in group_tasks:
                             competent_count = 0
@@ -489,8 +519,8 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                     sabbath_schedule = {}
 
                     for task, _ in task_scarcity:
-                        t_id = str(task['id']).strip()
-                        t_name = str(task['name']).strip()
+                        t_id = clean_s(task['id'])
+                        t_name = clean_s(task['name'])
                         
                         if active_group and t_name in group_tasks:
                             assigned_person = active_group
@@ -509,7 +539,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                                     elder_member_ids = members_df[elder_filter]['id'].tolist()
                                     eligible_df = eligible_df[eligible_df['id'].isin(elder_member_ids)]
 
-                            eligible = [m.strip() for m in eligible_df['name'].tolist()]
+                            eligible = [clean_s(m) for m in eligible_df['name'].tolist()]
                             
                             if eligible:
                                 not_yet_assigned = [m for m in eligible if m not in assigned_on_this_sabbath]
@@ -538,7 +568,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                         sabbath_schedule[t_name] = assigned_person
 
                     for _, task in tasks_df.iterrows():
-                        t_name = str(task['name']).strip()
+                        t_name = clean_s(task['name'])
                         generated_rows.append({
                             "Date": date_str,
                             "Task": t_name,
@@ -553,7 +583,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
 
                 with st.spinner("Updating Planning.csv, auto-pruning old history, and publishing web page..."):
                     if planning_df is not None and not planning_df.empty:
-                        base_planning_df = planning_df.drop(columns=['parsed_date', 'CleanMember', 'CleanTask'], errors='ignore')
+                        base_planning_df = planning_df.drop(columns=['parsed_date', 'CleanMember', 'CleanTask', 'NormalizedTask'], errors='ignore')
                     else:
                         base_planning_df = pd.DataFrame(columns=["Date", "Task", "AssignedMember"])
 
@@ -583,10 +613,6 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
         st.markdown("Select a Sabbath and task to view intelligent candidate recommendations (sorted oldest-first by last performed date).")
 
         if planning_df is not None and not planning_df.empty:
-            planning_df['parsed_date'] = pd.to_datetime(planning_df['Date'], format='%d/%m/%Y', dayfirst=True, errors='coerce')
-            planning_df['CleanMember'] = planning_df['AssignedMember'].astype(str).str.strip()
-            planning_df['CleanTask'] = planning_df['Task'].astype(str).str.strip()
-            
             available_dates_list = sorted(planning_df['parsed_date'].dropna().dt.date.unique(), reverse=True)
             
             if available_dates_list:
@@ -595,15 +621,15 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                 date_str_fmt = selected_swap_date.strftime('%d/%m/%Y')
                 sub_df = planning_df[planning_df['parsed_date'].dt.date == selected_swap_date]
                 
-                task_options = sub_df['CleanTask'].tolist()
+                task_options = [clean_s(t) for t in sub_df['NormalizedTask'].unique()]
                 selected_swap_task = st.selectbox("Select Task / Role", options=task_options, key="swap_task_sel")
                 
-                current_assigned = sub_df[sub_df['CleanTask'] == selected_swap_task]['CleanMember'].values
+                current_assigned = sub_df[sub_df['NormalizedTask'] == selected_swap_task]['CleanMember'].values
                 current_person = current_assigned[0] if len(current_assigned) > 0 else "Unknown"
                 st.info(f"Current assigned person for **{selected_swap_task}** on **{date_str_fmt}**: **{current_person}**")
                 
-                # Ranked Smart Recommendation Engine (Clean Normalized Matching)
-                t_id = task_name_to_id.get(selected_swap_task.strip(), "")
+                # Ranked Smart Recommendation Engine (Fail-safe lookup)
+                t_id = task_name_to_id.get(selected_swap_task, "")
                 recommended_members_ranked = []
                 
                 if members_df is not None and competencies_df is not None:
@@ -619,24 +645,15 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                         youth_mask = members_df['Youth'].astype(str).str.upper().isin(['TRUE', 'YES', '1']) | (members_df['Youth'] == True)
                         eligible_df = eligible_df[youth_mask]
                         
-                    eligible_names = [m.strip() for m in eligible_df['name'].tolist()]
-                    
-                    # Clean matching against Planning.csv
-                    task_plan = planning_df[
-                        (planning_df['CleanTask'].str.upper() == selected_swap_task.upper()) | 
-                        (planning_df['CleanTask'] == str(t_id))
-                    ].dropna(subset=['parsed_date'])
+                    eligible_names = [clean_s(m) for m in eligible_df['name'].tolist()]
                     
                     member_scores = []
                     default_past_date = date(2000, 1, 1)
                     
                     for m in eligible_names:
-                        m_history = task_plan[task_plan['CleanMember'].str.upper() == m.upper()]
-                        if not m_history.empty:
-                            last_d = m_history['parsed_date'].max().date()
-                        else:
-                            last_d = default_past_date
-                        member_scores.append((m, last_d))
+                        last_d = get_last_performed_date(planning_df, m, selected_swap_task)
+                        sort_d = last_d if last_d else default_past_date
+                        member_scores.append((m, sort_d))
                     
                     member_scores.sort(key=lambda x: x[1])
                     
@@ -659,19 +676,19 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                         new_assignee = chosen_tuple[0]
                     else:
                         st.warning("⚠️ No competent/available members found matching criteria for this task.")
-                        new_assignee = st.selectbox("Select Replacement Member", options=[m.strip() for m in members_df['name'].tolist()] if members_df is not None else [], key="swap_all_fallback_sel")
+                        new_assignee = st.selectbox("Select Replacement Member", options=[clean_s(m) for m in members_df['name'].tolist()] if members_df is not None else [], key="swap_all_fallback_sel")
                 elif swap_mode == "All Members List":
-                    all_member_names = [m.strip() for m in members_df['name'].tolist()] if members_df is not None else []
+                    all_member_names = [clean_s(m) for m in members_df['name'].tolist()] if members_df is not None else []
                     new_assignee = st.selectbox("Select Replacement Member", options=all_member_names, key="swap_member_sel")
                 else:
                     new_assignee = st.text_input("Enter Guest / Visitor Name", value="Visiting Pastor", key="swap_guest_text")
                 
                 if st.button("🔄 Apply Task Swap"):
                     if new_assignee:
-                        mask = (planning_df['parsed_date'].dt.date == selected_swap_date) & (planning_df['CleanTask'].str.upper() == selected_swap_task.upper())
+                        mask = (planning_df['parsed_date'].dt.date == selected_swap_date) & (planning_df['NormalizedTask'].str.upper() == selected_swap_task.upper())
                         planning_df.loc[mask, 'AssignedMember'] = new_assignee
                         
-                        clean_planning_df = planning_df.drop(columns=['parsed_date', 'CleanMember', 'CleanTask'], errors='ignore')
+                        clean_planning_df = planning_df.drop(columns=['parsed_date', 'CleanMember', 'CleanTask', 'NormalizedTask'], errors='ignore')
                         
                         with st.spinner("Applying swap and updating GitHub..."):
                             success_swap = push_file_to_github("Planning.csv", clean_planning_df.to_csv(index=False), f"Emergency swap: {selected_swap_task} on {date_str_fmt} to {new_assignee}")
@@ -709,10 +726,6 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
         st.markdown("Query historical assignments and member rotation history (replicating your spreadsheet lookup filter).")
 
         if planning_df is not None and not planning_df.empty:
-            planning_df['parsed_date'] = pd.to_datetime(planning_df['Date'], format='%d/%m/%Y', dayfirst=True, errors='coerce')
-            planning_df['CleanMember'] = planning_df['AssignedMember'].astype(str).str.strip()
-            planning_df['CleanTask'] = planning_df['Task'].astype(str).str.strip()
-            
             valid_p_df = planning_df.dropna(subset=['parsed_date']).sort_values(by='parsed_date', ascending=False)
             
             col_left, col_right = st.columns(2)
@@ -722,28 +735,24 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                 st.subheader("📋 Task History: Who does what when?")
                 sel_task_query = st.selectbox("Select Fanompoana (Task)", options=task_names, key="query_task_sel")
                 
-                t_id_q = task_name_to_id.get(sel_task_query.strip(), "")
+                t_id_q = task_name_to_id.get(sel_task_query, "")
                 if members_df is not None and competencies_df is not None:
                     comp_m_ids = competencies_df[competencies_df['tasks_id'].astype(str).str.strip() == t_id_q]['member_id'].tolist() if t_id_q else []
-                    comp_members = [m.strip() for m in members_df[members_df['id'].isin(comp_m_ids)]['name'].tolist()] if comp_m_ids else [m.strip() for m in members_df['name'].tolist()]
-                    
-                    task_history_df = valid_p_df[
-                        (valid_p_df['CleanTask'].str.upper() == sel_task_query.upper()) | 
-                        (valid_p_df['CleanTask'] == str(t_id_q))
-                    ]
+                    comp_members = [clean_s(m) for m in members_df[members_df['id'].isin(comp_m_ids)]['name'].tolist()] if comp_m_ids else [clean_s(m) for m in members_df['name'].tolist()]
                     
                     query_rows = []
                     default_p_date = date(2000, 1, 1)
                     
                     for m in comp_members:
-                        m_hist = task_history_df[task_history_df['CleanMember'].str.upper() == m.upper()]
-                        if not m_hist.empty:
-                            last_d = m_hist['parsed_date'].max().date()
+                        last_d = get_last_performed_date(valid_p_df, m, sel_task_query)
+                        if last_d:
                             d_display = last_d.strftime('%d/%m/%Y')
+                            sort_d = last_d
                         else:
-                            last_d = default_p_date
                             d_display = "Tsy mbola nanao (Never)"
-                        query_rows.append({"Anarana (Member)": m, "Daty farany (Last Date)": d_display, "_sort": last_d})
+                            sort_d = default_p_date
+                            
+                        query_rows.append({"Anarana (Member)": m, "Daty farany (Last Date)": d_display, "_sort": sort_d})
                     
                     query_result_df = pd.DataFrame(query_rows).sort_values(by="_sort", ascending=True).drop(columns=['_sort'])
                     st.markdown(f"**Competent Members for {sel_task_query} (Sorted Oldest-First):**")
@@ -752,7 +761,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
             # --- FILTER 2: WHEN DOES A MEMBER DO A TASK? (MEMBER VIEW) ---
             with col_right:
                 st.subheader("👤 Member History: When does a member do tasks?")
-                all_m_names = sorted([m.strip() for m in members_df['name'].dropna().unique().tolist()]) if members_df is not None else []
+                all_m_names = sorted([clean_s(m) for m in members_df['name'].dropna().unique().tolist()]) if members_df is not None else []
                 sel_member_query = st.selectbox("Select Anarana (Member)", options=all_m_names, key="query_member_sel")
                 
                 m_history_df = valid_p_df[valid_p_df['CleanMember'].str.upper() == sel_member_query.upper()]
@@ -802,7 +811,6 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
         st.markdown("Internal preview of what church members will see on the public web page.")
 
         if planning_df is not None and not planning_df.empty:
-            planning_df['parsed_date'] = pd.to_datetime(planning_df['Date'], format='%d/%m/%Y', dayfirst=True, errors='coerce')
             valid_plan = planning_df.dropna(subset=['parsed_date']).sort_values(by='parsed_date')
 
             unique_dates = valid_plan['parsed_date'].dt.date.unique()
@@ -819,7 +827,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                     latest_dates_slice.append(reference_date)
 
                 filtered_plan = valid_plan[valid_plan['parsed_date'].dt.date.isin(latest_dates_slice)]
-                display_df = filtered_plan.drop(columns=['parsed_date', 'CleanMember', 'CleanTask'], errors='ignore')
+                display_df = filtered_plan.drop(columns=['parsed_date', 'CleanMember', 'CleanTask', 'NormalizedTask'], errors='ignore')
 
                 st.info(f"Displaying schedule for the most recent {num_latest_to_show} Sabbath generation(s) + nearest coming reference Sabbath.")
                 
