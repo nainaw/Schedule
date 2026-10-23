@@ -10,104 +10,86 @@
             font-family: 'Inter', sans-serif;
             background-color: #f4f7f6;
             margin: 0;
-            padding: 20px;
+            padding: 10px;
             color: #2c3e50;
         }
         .container {
-            max-width: 650px;
+            max-width: 1000px;
             margin: auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
         }
         .main-title {
             text-align: center;
             color: #1a252f;
-            font-size: 26px;
+            font-size: 20px;
             font-weight: 800;
             letter-spacing: -0.5px;
-            margin-top: 20px;
-            margin-bottom: 25px;
+            margin-top: 0px;
+            margin-bottom: 15px;
             text-transform: uppercase;
-            line-height: 1.3;
         }
         .btn-print {
             display: block;
             width: fit-content;
-            margin: 0 auto 35px auto;
+            margin: 0 auto 15px auto;
             background-color: #2c3e50;
             color: white;
             border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
+            padding: 8px 16px;
+            border-radius: 6px;
             font-weight: 600;
-            font-size: 14px;
+            font-size: 12px;
             cursor: pointer;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             transition: background 0.2s;
             text-decoration: none;
         }
         .btn-print:hover {
             background-color: #1a252f;
         }
-        .sabbath-card {
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-            margin-bottom: 35px;
-            border: 1px solid #e1e8ed;
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 5px;
+            font-size: 12px;
         }
-        .card-date-header {
-            position: sticky;
-            top: 10px;
-            z-index: 10;
-            background-color: #ffffff;
-            color: #2980b9;
-            padding: 16px;
+        th, td {
+            border: 1px solid #cbd5e1;
+            padding: 6px 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f1f5f9;
+            color: #1e293b;
+            font-weight: 700;
             text-align: center;
-            font-size: 20px;
-            font-weight: 700;
-            border-bottom: 2px solid #edf2f7;
-            border-top-left-radius: 12px;
-            border-top-right-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.03);
-            letter-spacing: 0.5px;
         }
-        .card-body {
-            padding: 0 20px 10px 20px;
+        th:first-child, td:first-child {
+            text-align: left;
+            width: 28%;
         }
-        .schedule-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 16px 0;
-            border-bottom: 1px solid #f1f5f9;
-        }
-        .schedule-row:last-child {
-            border-bottom: none;
-        }
-        .task-name {
-            color: #7f8c8d;
-            font-size: 15px;
-            font-weight: 500;
-            flex: 1;
-            padding-right: 15px;
-        }
-        .member-name {
-            color: #1a252f;
-            font-size: 16px;
-            font-weight: 700;
-            text-align: right;
+        td {
+            color: #334155;
         }
         .footer {
             text-align: center;
-            margin-top: 40px;
-            font-size: 13px;
-            color: #95a5a6;
-            margin-bottom: 20px;
+            margin-top: 15px;
+            font-size: 10px;
+            color: #64748b;
         }
         @media print {
+            @page {
+                size: A4 portrait;
+                margin: 10mm;
+            }
             .btn-print { display: none; }
-            body { background-color: white; padding: 0; }
-            .sabbath-card { box-shadow: none; border: 1px solid #ccc; }
-            .card-date-header { position: static; box-shadow: none; }
+            body { background-color: white; padding: 0; margin: 0; }
+            .container { box-shadow: none; padding: 0; max-width: 100%; }
+            table { font-size: 10.5px; }
+            th, td { padding: 4px 6px; }
         }
     </style>
 </head>
@@ -115,240 +97,18 @@
     <div class="container">
         <h1 class="main-title">Anjara Fanompoana Isan-Tsabata</h1>
         
-        <button class="btn-print" onclick="window.print()">📥 Haka ny PDF (Pirinty)</button>
+        <button class="btn-print" onclick="window.print()">📥 Haka ny PDF / Pirinty (A4 Single Page)</button>
         
-        
-        <div class="sabbath-card">
-            <div class="card-date-header">17/10/2026</div>
-            <div class="card-body">
-                
-            <div class="schedule-row">
-                <span class="task-name">Mitarika Hariva</span>
-                <span class="member-name">R. Fihobiana</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Toriteny Lehibe</span>
-                <span class="member-name">R. Misedra</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Vatsim-panahy</span>
-                <span class="member-name">Ramaroson Liva</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Fanentanana Fanatitra</span>
-                <span class="member-name">A. Michael</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Vavaka Pastoraly</span>
-                <span class="member-name">R. Fitia</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Vakiteny</span>
-                <span class="member-name">Tahiana</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Toriteny Ankizy</span>
-                <span class="member-name">Minosoa</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Fitsahoana Hira</span>
-                <span class="member-name">Mario</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Fitsahoana Vakiteny</span>
-                <span class="member-name">Kevin</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">10 minitra ASAFI</span>
-                <span class="member-name">A. Rado</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">5 minitra SS</span>
-                <span class="member-name">Lehibe I</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Tatitra maneran-tany</span>
-                <span class="member-name">Lehibe I</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Mitarika Sekoly Sabata</span>
-                <span class="member-name">Lehibe I</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Mitarika Fotoam-pivav</span>
-                <span class="member-name">Koloina</span>
-            </div>
-            
-            </div>
-        </div>
-        
-        <div class="sabbath-card">
-            <div class="card-date-header">24/10/2026</div>
-            <div class="card-body">
-                
-            <div class="schedule-row">
-                <span class="task-name">Vatsim-panahy</span>
-                <span class="member-name">R. Patern</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Mitarika Hariva</span>
-                <span class="member-name">R. Florette</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Toriteny Lehibe</span>
-                <span class="member-name">R. Ernestine</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Fanentanana Fanatitra</span>
-                <span class="member-name">R. Fabrice</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Vavaka Pastoraly</span>
-                <span class="member-name">R. Herinirina</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Vakiteny</span>
-                <span class="member-name">Todisoa</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Toriteny Ankizy</span>
-                <span class="member-name">R. Andoniaina</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Fitsahoana Hira</span>
-                <span class="member-name">R. Romuald</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Fitsahoana Vakiteny</span>
-                <span class="member-name">R. Vololona</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">10 minitra ASAFI</span>
-                <span class="member-name">E. Falisoa</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">5 minitra SS</span>
-                <span class="member-name">Lehibe II</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Tatitra maneran-tany</span>
-                <span class="member-name">Lehibe II</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Mitarika Sekoly Sabata</span>
-                <span class="member-name">Lehibe II</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Mitarika Fotoam-pivav</span>
-                <span class="member-name">Pulchérie</span>
-            </div>
-            
-            </div>
-        </div>
-        
-        <div class="sabbath-card">
-            <div class="card-date-header">31/10/2026</div>
-            <div class="card-body">
-                
-            <div class="schedule-row">
-                <span class="task-name">Toriteny Lehibe</span>
-                <span class="member-name">MINENF</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Toriteny Ankizy</span>
-                <span class="member-name">MINENF</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Fanentanana Fanatitra</span>
-                <span class="member-name">MINENF</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Vavaka Pastoraly</span>
-                <span class="member-name">MINENF</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Vakiteny</span>
-                <span class="member-name">MINENF</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Mitarika Fotoam-pivav</span>
-                <span class="member-name">MINENF</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">10 minitra ASAFI</span>
-                <span class="member-name">R. Fitia</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Fitsahoana Vakiteny</span>
-                <span class="member-name">R. Fenosoa</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">5 minitra SS</span>
-                <span class="member-name">R. Misedra</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Tatitra maneran-tany</span>
-                <span class="member-name">Ramaroson Liva</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Mitarika Sekoly Sabata</span>
-                <span class="member-name">R. Armand</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Mitarika Hariva</span>
-                <span class="member-name">Pulchérie</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Fitsahoana Hira</span>
-                <span class="member-name">Razafinirinarisoa</span>
-            </div>
-            
-            <div class="schedule-row">
-                <span class="task-name">Vatsim-panahy</span>
-                <span class="member-name">A. Rado</span>
-            </div>
-            
-            </div>
-        </div>
-        
+        <table>
+            <thead>
+                <tr>
+                    <th>Fanompoana (Task)</th><th>17/10/2026</th><th>24/10/2026</th><th>31/10/2026</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td class='task-cell'><strong>SSM</strong><br><span style='font-size:11px; color:#555;'>Mitarika Sekoly Sabata</span></td><td>Lehibe I</td><td>Lehibe II</td><td>R. Armand</td></tr><tr><td class='task-cell'><strong>SST</strong><br><span style='font-size:11px; color:#555;'>Tatitra maneran-tany</span></td><td>Lehibe I</td><td>Lehibe II</td><td>Ramaroson Liva</td></tr><tr><td class='task-cell'><strong>SS5</strong><br><span style='font-size:11px; color:#555;'>5 minitra SS</span></td><td>Lehibe I</td><td>Lehibe II</td><td>R. Misedra</td></tr><tr><td class='task-cell'><strong>SS10</strong><br><span style='font-size:11px; color:#555;'>10 minitra ASAFI</span></td><td>A. Rado</td><td>E. Falisoa</td><td>R. Fitia</td></tr><tr><td class='task-cell'><strong>FTV</strong><br><span style='font-size:11px; color:#555;'>Fitsahoana Vakiteny</span></td><td>Kevin</td><td>R. Vololona</td><td>R. Fenosoa</td></tr><tr><td class='task-cell'><strong>FTH</strong><br><span style='font-size:11px; color:#555;'>Fitsahoana Hira</span></td><td>Mario</td><td>R. Romuald</td><td>Razafinirinarisoa</td></tr><tr><td class='task-cell'><strong>CUM</strong><br><span style='font-size:11px; color:#555;'>Mitarika Fotoam-pivav</span></td><td>Koloina</td><td>Pulchérie</td><td>MINENF</td></tr><tr><td class='task-cell'><strong>CUVK</strong><br><span style='font-size:11px; color:#555;'>Vakiteny</span></td><td>Tahiana</td><td>Todisoa</td><td>MINENF</td></tr><tr><td class='task-cell'><strong>CUVP</strong><br><span style='font-size:11px; color:#555;'>Vavaka Pastoraly</span></td><td>R. Fitia</td><td>R. Herinirina</td><td>MINENF</td></tr><tr><td class='task-cell'><strong>CUFN</strong><br><span style='font-size:11px; color:#555;'>Fanentanana Fanatitra</span></td><td>A. Michael</td><td>R. Fabrice</td><td>MINENF</td></tr><tr><td class='task-cell'><strong>CUTA</strong><br><span style='font-size:11px; color:#555;'>Toriteny Ankizy</span></td><td>Minosoa</td><td>R. Andoniaina</td><td>MINENF</td></tr><tr><td class='task-cell'><strong>CUTL</strong><br><span style='font-size:11px; color:#555;'>Toriteny Lehibe</span></td><td>R. Misedra</td><td>R. Ernestine</td><td>MINENF</td></tr><tr><td class='task-cell'><strong>HARM</strong><br><span style='font-size:11px; color:#555;'>Mitarika Hariva</span></td><td>R. Fihobiana</td><td>R. Florette</td><td>Pulchérie</td></tr><tr><td class='task-cell'><strong>HARF</strong><br><span style='font-size:11px; color:#555;'>Vatsim-panahy</span></td><td>Ramaroson Liva</td><td>R. Patern</td><td>A. Rado</td></tr>
+            </tbody>
+        </table>
         
         <div class="footer">
             <p>Namboarina tamin'ny alalan'ny rafitra mandeha ho azy</p>
