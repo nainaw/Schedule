@@ -595,13 +595,14 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                 current_person = current_assigned[0] if len(current_assigned) > 0 else "Unknown"
                 st.info(f"Current assigned person for **{selected_swap_task}** on **{date_str_fmt}**: **{current_person}**")
                 
-                # Ranked Smart Recommendation Engine (Oldest last-performed date first)
+                # Ranked Smart Recommendation Engine (Robust Lookup for Task Codes & Names)
                 t_id = task_name_to_id.get(selected_swap_task, "")
                 recommended_members_ranked = []
                 
-                if t_id and members_df is not None and competencies_df is not None:
-                    competent_member_ids = competencies_df[competencies_df['tasks_id'].astype(str) == t_id]['member_id'].tolist()
-                    eligible_df = members_df[(members_df['id'].isin(competent_member_ids)) & (members_df['available'] == True)]
+                if members_df is not None and competencies_df is not None:
+                    competent_member_ids = competencies_df[competencies_df['tasks_id'].astype(str) == t_id]['member_id'].tolist() if t_id else []
+                    eligible_df = members_df[members_df['id'].isin(competent_member_ids)] if competent_member_ids else members_df.copy()
+                    eligible_df = eligible_df[eligible_df['available'] == True]
                     
                     first_day_of_month = date(selected_swap_date.year, selected_swap_date.month, 1)
                     first_sat = first_day_of_month + timedelta(days=(5 - first_day_of_month.weekday()) % 7)
@@ -613,8 +614,11 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                         
                     eligible_names = eligible_df['name'].tolist()
                     
-                    # Calculate last performed date for each eligible member for this specific task
-                    task_plan = planning_df[planning_df['Task'] == selected_swap_task].dropna(subset=['parsed_date'])
+                    # Robust search across task name, task ID, or partial code matches in Planning.csv
+                    task_plan = planning_df[
+                        (planning_df['Task'] == selected_swap_task) | 
+                        (planning_df['Task'].astype(str) == str(t_id))
+                    ].dropna(subset=['parsed_date'])
                     
                     member_scores = []
                     default_past_date = date(2000, 1, 1)
@@ -627,7 +631,6 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                             last_d = default_past_date
                         member_scores.append((m, last_d))
                     
-                    # Sort candidates so those who performed the task longest ago appear first
                     member_scores.sort(key=lambda x: x[1])
                     
                     for m, d in member_scores:
@@ -672,12 +675,28 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                                 st.rerun()
                             else:
                                 st.error("❌ Failed to update GitHub. Check your token permissions.")
+
+                # --- EMBEDDED MEMBER ASSIGNMENT HISTORY (DIRECTLY UNDER SWAP BUTTON) ---
+                if swap_mode != "Custom Visitor / Guest (e.g., Visiting Pastor)" and new_assignee:
+                    st.markdown("---")
+                    st.subheader(f"👤 Member Schedule History: {new_assignee}")
+                    st.caption("Review past tasks and dates assigned to this member before/after swapping:")
+                    
+                    valid_p_df = planning_df.dropna(subset=['parsed_date']).sort_values(by='parsed_date', ascending=False)
+                    m_history_df = valid_p_df[valid_p_df['AssignedMember'] == new_assignee]
+                    
+                    if not m_history_df.empty:
+                        m_display_df = m_history_df[['Date', 'Task']].copy()
+                        m_display_df.columns = ['Daty (Date)', 'Andraikitra (Task)']
+                        st.dataframe(m_display_df, use_container_width=True, hide_index=True)
+                    else:
+                        st.info(f"No past assignment records found for {new_assignee}.")
             else:
                 st.info("No dated planning records available for swapping.")
         else:
             st.info("Planning history is empty.")
 
-    # ================= TAB 2: ROTATION ANALYTICS & QUERY (NEW) =================
+    # ================= TAB 2: ROTATION ANALYTICS & QUERY =================
     with tab_analytics:
         st.title("🔍 Rotation Analytics & Query")
         st.markdown("Query historical assignments and member rotation history (replicating your spreadsheet lookup filter).")
@@ -694,11 +713,15 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                 sel_task_query = st.selectbox("Select Fanompoana (Task)", options=task_names, key="query_task_sel")
                 
                 t_id_q = task_name_to_id.get(sel_task_query, "")
-                if t_id_q and members_df is not None and competencies_df is not None:
-                    comp_m_ids = competencies_df[competencies_df['tasks_id'].astype(str) == t_id_q]['member_id'].tolist()
-                    comp_members = members_df[members_df['id'].isin(comp_m_ids)]['name'].tolist()
+                if members_df is not None and competencies_df is not None:
+                    comp_m_ids = competencies_df[competencies_df['tasks_id'].astype(str) == t_id_q]['member_id'].tolist() if t_id_q else []
+                    comp_members = members_df[members_df['id'].isin(comp_m_ids)]['name'].tolist() if comp_m_ids else members_df['name'].tolist()
                     
-                    task_history_df = valid_p_df[valid_p_df['Task'] == sel_task_query]
+                    # Robust search across task name, task ID, or partial codes
+                    task_history_df = valid_p_df[
+                        (valid_p_df['Task'] == sel_task_query) | 
+                        (valid_p_df['Task'].astype(str) == str(t_id_q))
+                    ]
                     
                     query_rows = []
                     default_p_date = date(2000, 1, 1)
