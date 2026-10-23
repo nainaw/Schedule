@@ -378,7 +378,7 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
             <button class="btn-print" onclick="window.print()">📥 Haka ny PDF / Pirinty (A4)</button>
             <label for="table-toggle" class="toggle-container">
                 <input type="checkbox" id="ui-checkbox" onclick="document.getElementById('table-toggle').checked = this.checked;">
-                <span>Turn on Table form (Endrika Tabilao)</span>
+                <span>Atao Endrika Tabilao</span>
             </label>
         </div>
         
@@ -402,7 +402,6 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
         </div>
         
         <div class="footer">
-            <p>Namboarina tamin'ny alalan'ny rafitra mandeha ho azy</p>
         </div>
     </div>
 </body>
