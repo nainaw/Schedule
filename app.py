@@ -70,9 +70,9 @@ def prune_planning_data(planning_df, max_rows=1000):
     return df_copy.drop(columns=['parsed_date'], errors='ignore')
 
 
-# --- AUTO-PUBLISH PUBLIC HTML PAGE FOR GITHUB PAGES (COMPACT MATRIX TABLE) ---
+# --- AUTO-PUBLISH PUBLIC HTML PAGE (WITH VIEW TOGGLE CHECKBOX & FORCED PRINT TABLE) ---
 def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
-    """Generates a compact, print-optimized matrix table index.html fitting easily onto a single page."""
+    """Publishes index.html with a checkbox toggle for Card vs Table view, forcing table view on print."""
     if planning_df is None or planning_df.empty:
         return
     
@@ -105,13 +105,39 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
 
     filtered_plan = valid_plan[valid_plan['parsed_date'].dt.date.isin(latest_dates_slice)].copy()
     
-    # Sort tasks strictly according to Tasks.csv ordering
     if ordered_task_names:
         task_cat = pd.CategoricalDtype(categories=ordered_task_names, ordered=True)
         filtered_plan['TaskOrder'] = filtered_plan['CleanTask'].astype(task_cat)
         filtered_plan = filtered_plan.sort_values(by='TaskOrder')
 
-    # Pivot into Matrix Table (Tasks as rows, Dates as columns)
+    # --- 1. BUILD SCREEN CARDS HTML ---
+    sabbath_cards_html = ""
+    for d in sorted(latest_dates_slice):
+        date_str = d.strftime('%d/%m/%Y')
+        day_df = filtered_plan[filtered_plan['parsed_date'].dt.date == d]
+        
+        rows_html = ""
+        for _, row in day_df.iterrows():
+            t_code = str(row['CleanTask']).strip()
+            t_display = task_desc_map.get(t_code, t_code)
+            
+            rows_html += f"""
+            <div class="schedule-row">
+                <span class="task-name">{t_display}</span>
+                <span class="member-name">{str(row['CleanMember']).strip()}</span>
+            </div>
+            """
+            
+        sabbath_cards_html += f"""
+        <div class="sabbath-card">
+            <div class="card-date-header">{date_str}</div>
+            <div class="card-body">
+                {rows_html}
+            </div>
+        </div>
+        """
+
+    # --- 2. BUILD MATRIX TABLE HTML ---
     date_cols_str = [d.strftime('%d/%m/%Y') for d in latest_dates_slice]
     pivot_table = filtered_plan.pivot_table(index='CleanTask', columns='Date', values='CleanMember', aggfunc='first')
     
@@ -129,7 +155,7 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
     tr_html = ""
     for task_code, row_data in pivot_table.iterrows():
         t_display = task_desc_map.get(task_code, task_code)
-        tr_html += f"<tr><td class='task-cell'><strong>{task_code}</strong><br><span style='font-size:11px; color:#555;'>{t_display}</span></td>"
+        tr_html += f"<tr><td class='task-cell'><strong>{task_code}</strong><br><span style='font-size:9px; color:#555;'>{t_display}</span></td>"
         for d_str in existing_date_cols:
             member_val = row_data.get(d_str, "-")
             if pd.isna(member_val):
@@ -149,55 +175,140 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
             font-family: 'Inter', sans-serif;
             background-color: #f4f7f6;
             margin: 0;
-            padding: 10px;
+            padding: 20px;
             color: #2c3e50;
         }}
         .container {{
-            max-width: 1000px;
+            max-width: 850px;
             margin: auto;
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
         }}
         .main-title {{
             text-align: center;
             color: #1a252f;
-            font-size: 20px;
+            font-size: 24px;
             font-weight: 800;
             letter-spacing: -0.5px;
-            margin-top: 0px;
-            margin-bottom: 15px;
+            margin-top: 15px;
+            margin-bottom: 20px;
             text-transform: uppercase;
         }}
+        .controls-bar {{
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }}
         .btn-print {{
-            display: block;
-            width: fit-content;
-            margin: 0 auto 15px auto;
             background-color: #2c3e50;
             color: white;
             border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
+            padding: 10px 20px;
+            border-radius: 8px;
             font-weight: 600;
-            font-size: 12px;
+            font-size: 13px;
             cursor: pointer;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
             transition: background 0.2s;
             text-decoration: none;
         }}
         .btn-print:hover {{
             background-color: #1a252f;
         }}
+        .toggle-container {{
+            background: white;
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 1px solid #cbd5e1;
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+        }}
+        .toggle-container input {{
+            cursor: pointer;
+            width: 16px;
+            height: 16px;
+        }}
+
+        /* VIEWS CONTAINER */
+        .web-cards-view {{ display: block; }}
+        .print-table-view {{ display: none; }}
+
+        /* Checkbox state styling via adjacent sibling selector */
+        #table-toggle:checked ~ .web-cards-view {{
+            display: none;
+        }}
+        #table-toggle:checked ~ .print-table-view {{
+            display: block;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }}
+
+        /* CARDS STYLING */
+        .sabbath-card {{
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            margin-bottom: 30px;
+            border: 1px solid #e1e8ed;
+        }}
+        .card-date-header {{
+            position: sticky;
+            top: 10px;
+            z-index: 10;
+            background-color: #ffffff;
+            color: #2980b9;
+            padding: 16px;
+            text-align: center;
+            font-size: 18px;
+            font-weight: 700;
+            border-bottom: 2px solid #edf2f7;
+            border-top-left-radius: 12px;
+            border-top-right-radius: 12px;
+        }}
+        .card-body {{
+            padding: 0 20px 10px 20px;
+        }}
+        .schedule-row {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 0;
+            border-bottom: 1px solid #f1f5f9;
+        }}
+        .schedule-row:last-child {{
+            border-bottom: none;
+        }}
+        .task-name {{
+            color: #7f8c8d;
+            font-size: 14px;
+            font-weight: 500;
+            flex: 1;
+            padding-right: 15px;
+        }}
+        .member-name {{
+            color: #1a252f;
+            font-size: 15px;
+            font-weight: 700;
+            text-align: right;
+        }}
+
+        /* TABLE STYLING */
         table {{
             width: 100%;
             border-collapse: collapse;
-            margin-top: 5px;
-            font-size: 12px;
+            font-size: 13px;
         }}
         th, td {{
             border: 1px solid #cbd5e1;
-            padding: 6px 8px;
+            padding: 8px 10px;
             text-align: left;
         }}
         th {{
@@ -207,28 +318,52 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
             text-align: center;
         }}
         th:first-child, td:first-child {{
-            text-align: left;
             width: 28%;
         }}
         td {{
             color: #334155;
         }}
+
         .footer {{
             text-align: center;
-            margin-top: 15px;
-            font-size: 10px;
-            color: #64748b;
+            margin-top: 30px;
+            font-size: 12px;
+            color: #95a5a6;
+            margin-bottom: 20px;
         }}
+
+        /* FORCE TABLE LAYOUT ON PRINT */
         @media print {{
             @page {{
                 size: A4 portrait;
                 margin: 10mm;
             }}
-            .btn-print {{ display: none; }}
+            .btn-print, .toggle-container {{ display: none !important; }}
             body {{ background-color: white; padding: 0; margin: 0; }}
-            .container {{ box-shadow: none; padding: 0; max-width: 100%; }}
-            table {{ font-size: 10.5px; }}
-            th, td {{ padding: 4px 6px; }}
+            .container {{ max-width: 100%; padding: 0; }}
+            
+            /* Force hide cards, force show table */
+            .web-cards-view {{ display: none !important; }}
+            .print-table-view {{ display: block !important; box-shadow: none !important; padding: 0 !important; }}
+            
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 10.5px;
+            }}
+            th, td {{
+                border: 1px solid #cbd5e1;
+                padding: 4px 6px;
+            }}
+            th {{
+                background-color: #f1f5f9 !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }}
+            .footer {{
+                margin-top: 10px;
+                font-size: 9px;
+            }}
         }}
     </style>
 </head>
@@ -236,18 +371,35 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
     <div class="container">
         <h1 class="main-title">Anjara Fanompoana Isan-Tsabata</h1>
         
-        <button class="btn-print" onclick="window.print()">📥 Haka ny PDF / Pirinty (A4 Single Page)</button>
+        <!-- HIDDEN CHECKBOX FOR TOGGLING (Controlled by Label) -->
+        <input type="checkbox" id="table-toggle" style="display: none;">
+
+        <div class="controls-bar">
+            <button class="btn-print" onclick="window.print()">📥 Haka ny PDF / Pirinty (A4)</button>
+            <label for="table-toggle" class="toggle-container">
+                <input type="checkbox" id="ui-checkbox" onclick="document.getElementById('table-toggle').checked = this.checked;">
+                <span>Turn on Table form (Endrika Tabilao)</span>
+            </label>
+        </div>
         
-        <table>
-            <thead>
-                <tr>
-                    {th_html}
-                </tr>
-            </thead>
-            <tbody>
-                {tr_html}
-            </tbody>
-        </table>
+        <!-- WEB VIEW 1: Cards -->
+        <div class="web-cards-view">
+            {sabbath_cards_html}
+        </div>
+
+        <!-- WEB VIEW 2: Matrix Table -->
+        <div class="print-table-view">
+            <table>
+                <thead>
+                    <tr>
+                        {th_html}
+                    </tr>
+                </thead>
+                <tbody>
+                    {tr_html}
+                </tbody>
+            </table>
+        </div>
         
         <div class="footer">
             <p>Namboarina tamin'ny alalan'ny rafitra mandeha ho azy</p>
@@ -256,7 +408,7 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
 </body>
 </html>
 """
-    push_file_to_github("index.html", html_content, "Auto-publish single-page matrix table index.html")
+    push_file_to_github("index.html", html_content, "Auto-publish index.html with interactive view toggle and forced print table")
 
 
 # --- SIDEBAR: REFRESH & QUICK ACTIONS ---
@@ -377,7 +529,6 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
         planning_df['CleanTask'] = planning_df['Task'].astype(str).str.strip()
         planning_df['NormalizedTask'] = planning_df['CleanTask'].apply(lambda x: task_id_to_name.get(x, x))
 
-    # Detailed history lookup function with overall activity fallback
     def get_member_task_history_info(p_df, member_name, task_name):
         if p_df is None or p_df.empty:
             return None, "Never"
@@ -813,7 +964,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
 
             unique_dates = valid_plan['parsed_date'].dt.date.unique()
 
-            if len(start_date := unique_dates) > 0:
+            if len(unique_dates) > 0:
                 num_latest_to_show = st.slider("Number of latest Sabbath batches to display", min_value=1, max_value=5, value=3)
                 
                 today = date.today()
