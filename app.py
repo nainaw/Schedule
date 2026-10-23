@@ -60,7 +60,7 @@ def prune_planning_data(planning_df, max_rows=1000):
         return planning_df
     
     df_copy = planning_df.copy()
-    df_copy['parsed_date'] = pd.to_datetime(df_copy['Date'], format='%d/%m/%Y', dayfirst=True, errors='coerce')
+    df_copy['parsed_date'] = pd.to_datetime(df_copy['Date'], dayfirst=True, errors='coerce')
     unique_dates = sorted(df_copy['parsed_date'].dropna().dt.date.unique())
     
     while len(df_copy) > max_rows and len(unique_dates) > 50:
@@ -81,7 +81,7 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
         task_desc_map = dict(zip(tasks_df['name'].astype(str).str.strip(), tasks_df['description'].fillna(tasks_df['name']).astype(str).str.strip()))
 
     df = planning_df.copy()
-    df['parsed_date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y', dayfirst=True, errors='coerce')
+    df['parsed_date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')
     valid_plan = df.dropna(subset=['parsed_date']).sort_values(by='parsed_date')
     unique_dates = valid_plan['parsed_date'].dt.date.unique()
     
@@ -289,11 +289,9 @@ tasks_df = load_github_csv("Tasks.csv")
 planning_df = load_github_csv("Planning.csv")
 
 if members_df is not None and competencies_df is not None and tasks_df is not None:
-    # Clean string helper
     def clean_s(val):
         return str(val).strip() if pd.notna(val) else ""
 
-    # Build maps
     task_id_to_name = {clean_s(r['id']): clean_s(r['name']) for _, r in tasks_df.iterrows()}
     task_name_to_id = {clean_s(r['name']): clean_s(r['id']) for _, r in tasks_df.iterrows()}
     task_names = [clean_s(x) for x in tasks_df['name'].dropna().tolist() if clean_s(x)]
@@ -369,33 +367,31 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
         "👥 Member Schedule View"
     ])
 
-    # Pre-process Planning DF for robust searches
+    # Pre-process Planning DF with flexible date parsing and loose matching columns
     if planning_df is not None and not planning_df.empty:
-        planning_df['parsed_date'] = pd.to_datetime(planning_df['Date'], format='%d/%m/%Y', dayfirst=True, errors='coerce')
+        # Flexible date parsing supporting any format automatically
+        planning_df['parsed_date'] = pd.to_datetime(planning_df['Date'], dayfirst=True, errors='coerce')
         planning_df['CleanMember'] = planning_df['AssignedMember'].astype(str).str.strip()
         planning_df['CleanTask'] = planning_df['Task'].astype(str).str.strip()
-        
-        # Normalize task names in planning_df so '1' becomes 'SSM', etc.
         planning_df['NormalizedTask'] = planning_df['CleanTask'].apply(lambda x: task_id_to_name.get(x, x))
 
-    # Helper function: Finds max performed date for a member & task across all representations
+    # Fail-safe lookup function using loose substring and case-insensitive matching
     def get_last_performed_date(p_df, member_name, task_name):
         if p_df is None or p_df.empty:
             return None
         
-        t_id = task_name_to_id.get(task_name, "")
-        
         m_upper = member_name.strip().upper()
         t_upper = task_name.strip().upper()
-        tid_upper = t_id.upper() if t_id else ""
+        t_id = task_name_to_id.get(task_name, "").upper()
         
-        # Match by member name AND (task name OR task id OR normalized task name)
+        # Match where member name matches cleanly and task matches code, ID, or normalized name
         sub = p_df[
             (p_df['CleanMember'].str.upper() == m_upper) &
             (
                 (p_df['CleanTask'].str.upper() == t_upper) |
-                (p_df['CleanTask'].str.upper() == tid_upper) |
-                (p_df['NormalizedTask'].str.upper() == t_upper)
+                (p_df['CleanTask'].str.upper() == t_id) |
+                (p_df['NormalizedTask'].str.upper() == t_upper) |
+                (p_df['CleanTask'].str.upper().str.contains(t_upper))
             )
         ].dropna(subset=['parsed_date'])
         
@@ -628,11 +624,11 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                 current_person = current_assigned[0] if len(current_assigned) > 0 else "Unknown"
                 st.info(f"Current assigned person for **{selected_swap_task}** on **{date_str_fmt}**: **{current_person}**")
                 
-                # Ranked Smart Recommendation Engine (Fail-safe lookup)
-                t_id = task_name_to_id.get(selected_swap_task, "")
+                # Ranked Smart Recommendation Engine
                 recommended_members_ranked = []
                 
                 if members_df is not None and competencies_df is not None:
+                    t_id = task_name_to_id.get(selected_swap_task, "")
                     competent_member_ids = competencies_df[competencies_df['tasks_id'].astype(str).str.strip() == t_id]['member_id'].tolist() if t_id else []
                     eligible_df = members_df[members_df['id'].isin(competent_member_ids)] if competent_member_ids else members_df.copy()
                     eligible_df = eligible_df[eligible_df['available'] == True]
@@ -735,8 +731,8 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                 st.subheader("📋 Task History: Who does what when?")
                 sel_task_query = st.selectbox("Select Fanompoana (Task)", options=task_names, key="query_task_sel")
                 
-                t_id_q = task_name_to_id.get(sel_task_query, "")
                 if members_df is not None and competencies_df is not None:
+                    t_id_q = task_name_to_id.get(sel_task_query, "")
                     comp_m_ids = competencies_df[competencies_df['tasks_id'].astype(str).str.strip() == t_id_q]['member_id'].tolist() if t_id_q else []
                     comp_members = [clean_s(m) for m in members_df[members_df['id'].isin(comp_m_ids)]['name'].tolist()] if comp_m_ids else [clean_s(m) for m in members_df['name'].tolist()]
                     
@@ -773,6 +769,13 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                     st.dataframe(m_display_df, use_container_width=True, hide_index=True)
                 else:
                     st.info(f"No past assignment records found for {sel_member_query}.")
+
+            # --- DEBUG INSPECTOR (TO IDENTIFY ANY MISMATCHES INSTANTLY) ---
+            with st.expander("🛠️ Debug Planning Data Inspector"):
+                st.markdown("If dates are still showing 'Never', check below to see how your `Planning.csv` rows are loaded:")
+                st.write(f"Total rows in Planning.csv: {len(planning_df)}")
+                st.write(f"Successfully parsed dates: {planning_df['parsed_date'].notna().sum()}")
+                st.dataframe(planning_df[['Date', 'Task', 'AssignedMember', 'CleanMember', 'CleanTask', 'NormalizedTask', 'parsed_date']].head(10), use_container_width=True)
         else:
             st.info("No planning history available yet. Generate a schedule first!")
 
