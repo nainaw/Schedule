@@ -70,18 +70,24 @@ def prune_planning_data(planning_df, max_rows=1000):
     return df_copy.drop(columns=['parsed_date'], errors='ignore')
 
 
-# --- AUTO-PUBLISH PUBLIC HTML PAGE FOR GITHUB PAGES ---
+# --- AUTO-PUBLISH PUBLIC HTML PAGE FOR GITHUB PAGES (TABLE MATRIX LAYOUT) ---
 def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
-    """Generates a gorgeous, mobile-friendly card layout index.html with task descriptions and sticky date headers."""
+    """Generates a compact, print-optimized matrix table index.html fitting easily onto a single page."""
     if planning_df is None or planning_df.empty:
         return
     
     task_desc_map = {}
-    if tasks_df is not None and 'name' in tasks_df.columns and 'description' in tasks_df.columns:
-        task_desc_map = dict(zip(tasks_df['name'].astype(str).str.strip(), tasks_df['description'].fillna(tasks_df['name']).astype(str).str.strip()))
+    ordered_task_names = []
+    if tasks_df is not None and 'name' in tasks_df.columns:
+        ordered_task_names = [str(x).strip() for x in tasks_df['name'].dropna().tolist()]
+        if 'description' in tasks_df.columns:
+            task_desc_map = dict(zip(tasks_df['name'].astype(str).str.strip(), tasks_df['description'].fillna(tasks_df['name']).astype(str).str.strip()))
 
     df = planning_df.copy()
     df['parsed_date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')
+    df['CleanTask'] = df['Task'].astype(str).str.strip()
+    df['CleanMember'] = df['AssignedMember'].astype(str).str.strip()
+    
     valid_plan = df.dropna(subset=['parsed_date']).sort_values(by='parsed_date')
     unique_dates = valid_plan['parsed_date'].dt.date.unique()
     
@@ -95,34 +101,45 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
     latest_dates_slice = list(unique_dates[-num_latest:])
     if reference_date not in latest_dates_slice:
         latest_dates_slice.append(reference_date)
+    latest_dates_slice = sorted(list(set(latest_dates_slice)))
 
-    filtered_plan = valid_plan[valid_plan['parsed_date'].dt.date.isin(latest_dates_slice)]
+    filtered_plan = valid_plan[valid_plan['parsed_date'].dt.date.isin(latest_dates_slice)].copy()
     
-    sabbath_cards_html = ""
-    for d in sorted(latest_dates_slice):
-        date_str = d.strftime('%d/%m/%Y')
-        day_df = filtered_plan[filtered_plan['parsed_date'].dt.date == d]
-        
-        rows_html = ""
-        for _, row in day_df.iterrows():
-            t_code = str(row['Task']).strip()
-            t_display = task_desc_map.get(t_code, t_code)
-            
-            rows_html += f"""
-            <div class="schedule-row">
-                <span class="task-name">{t_display}</span>
-                <span class="member-name">{str(row['AssignedMember']).strip()}</span>
-            </div>
-            """
-            
-        sabbath_cards_html += f"""
-        <div class="sabbath-card">
-            <div class="card-date-header">{date_str}</div>
-            <div class="card-body">
-                {rows_html}
-            </div>
-        </div>
-        """
+    # Sort tasks strictly according to Tasks.csv ordering
+    if ordered_task_names:
+        task_cat = pd.CategoricalDtype(categories=ordered_task_names, ordered=True)
+        filtered_plan['TaskOrder'] = filtered_plan['CleanTask'].astype(task_cat)
+        filtered_plan = filtered_plan.sort_values(by='TaskOrder')
+
+    # Pivot into Matrix Table (Tasks as rows, Dates as columns)
+    date_cols_str = [d.strftime('%d/%m/%Y') for d in latest_dates_slice]
+    pivot_table = filtered_plan.pivot_table(index='CleanTask', columns='Date', values='CleanMember', aggfunc='first')
+    
+    # Reindex rows by Tasks.csv order
+    if ordered_task_names:
+        existing_tasks = [t for t in ordered_task_names if t in pivot_table.index]
+        pivot_table = pivot_table.reindex(existing_tasks)
+
+    # Reindex columns by date order
+    existing_date_cols = [c for c in date_cols_str if c in pivot_table.columns]
+    pivot_table = pivot_table[existing_date_cols]
+
+    # Build HTML Table Headers
+    th_html = "<th>Fanompoana (Task)</th>"
+    for d_str in existing_date_cols:
+        th_html += f"<th>{d_str}</th>"
+
+    # Build HTML Table Rows
+    tr_html = ""
+    for task_code, row_data in pivot_table.iterrows():
+        t_display = task_desc_map.get(task_code, task_code)
+        tr_html += f"<tr><td class='task-cell'><strong>{task_code}</strong><br><span style='font-size:11px; color:#666;'>{t_display}</span></td>"
+        for d_str in existing_date_cols:
+            member_val = row_data.get(d_str, "-")
+            if pd.isna(member_val):
+                member_val = "-"
+            tr_html += f"<td>{member_val}</td>"
+        tr_html += "</tr>"
 
     html_content = f"""<!DOCTYPE html>
 <html lang="mg">
@@ -136,104 +153,82 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
             font-family: 'Inter', sans-serif;
             background-color: #f4f7f6;
             margin: 0;
-            padding: 20px;
+            padding: 15px;
             color: #2c3e50;
         }}
         .container {{
-            max-width: 650px;
+            max-width: 950px;
             margin: auto;
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
         }}
         .main-title {{
             text-align: center;
             color: #1a252f;
-            font-size: 26px;
+            font-size: 22px;
             font-weight: 800;
             letter-spacing: -0.5px;
-            margin-top: 20px;
-            margin-bottom: 25px;
+            margin-top: 5px;
+            margin-bottom: 20px;
             text-transform: uppercase;
-            line-height: 1.3;
         }}
         .btn-print {{
             display: block;
             width: fit-content;
-            margin: 0 auto 35px auto;
+            margin: 0 auto 20px auto;
             background-color: #2c3e50;
             color: white;
             border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
+            padding: 10px 20px;
+            border-radius: 6px;
             font-weight: 600;
-            font-size: 14px;
+            font-size: 13px;
             cursor: pointer;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             transition: background 0.2s;
             text-decoration: none;
         }}
         .btn-print:hover {{
             background-color: #1a252f;
         }}
-        .sabbath-card {{
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-            margin-bottom: 35px;
-            border: 1px solid #e1e8ed;
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 13px;
         }}
-        .card-date-header {{
-            position: sticky;
-            top: 10px;
-            z-index: 10;
-            background-color: #ffffff;
-            color: #2980b9;
-            padding: 16px;
+        th, td {{
+            border: 1px solid #dcdde1;
+            padding: 8px 10px;
+            text-align: left;
+        }}
+        th {{
+            background-color: #f1f2f6;
+            color: #2f3640;
+            font-weight: 700;
             text-align: center;
-            font-size: 20px;
-            font-weight: 700;
-            border-bottom: 2px solid #edf2f7;
-            border-top-left-radius: 12px;
-            border-top-right-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.03);
-            letter-spacing: 0.5px;
         }}
-        .card-body {{
-            padding: 0 20px 10px 20px;
+        th:first-child, td:first-child {{
+            text-align: left;
+            width: 25%;
         }}
-        .schedule-row {{
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 16px 0;
-            border-bottom: 1px solid #f1f5f9;
-        }}
-        .schedule-row:last-child {{
-            border-bottom: none;
-        }}
-        .task-name {{
-            color: #7f8c8d;
-            font-size: 15px;
-            font-weight: 500;
-            flex: 1;
-            padding-right: 15px;
-        }}
-        .member-name {{
-            color: #1a252f;
-            font-size: 16px;
-            font-weight: 700;
-            text-align: right;
+        td {{
+            color: #2f3640;
         }}
         .footer {{
             text-align: center;
-            margin-top: 40px;
-            font-size: 13px;
-            color: #95a5a6;
-            margin-bottom: 20px;
+            margin-top: 25px;
+            font-size: 11px;
+            color: #718093;
         }}
         @media print {{
             .btn-print {{ display: none; }}
-            body {{ background-color: white; padding: 0; }}
-            .sabbath-card {{ box-shadow: none; border: 1px solid #ccc; }}
-            .card-date-header {{ position: static; box-shadow: none; }}
+            body {{ background-color: white; padding: 0; margin: 0; }}
+            .container {{ box-shadow: none; padding: 0; max-width: 100%; }}
+            table {{ font-size: 11px; }}
+            th, td {{ padding: 5px 6px; }}
         }}
     </style>
 </head>
@@ -241,9 +236,18 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
     <div class="container">
         <h1 class="main-title">Anjara Fanompoana Isan-Tsabata</h1>
         
-        <button class="btn-print" onclick="window.print()">📥 Haka ny PDF (Pirinty)</button>
+        <button class="btn-print" onclick="window.print()">📥 Haka ny PDF / Pirinty (A4)</button>
         
-        {sabbath_cards_html}
+        <table>
+            <thead>
+                <tr>
+                    {th_html}
+                </tr>
+            </thead>
+            <tbody>
+                {tr_html}
+            </tbody>
+        </table>
         
         <div class="footer">
             <p>Namboarina tamin'ny alalan'ny rafitra mandeha ho azy</p>
@@ -252,7 +256,7 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
 </body>
 </html>
 """
-    push_file_to_github("index.html", html_content, "Auto-publish index.html with task descriptions and sticky date headers")
+    push_file_to_github("index.html", html_content, "Auto-publish compact matrix table layout index.html for single-page printing")
 
 
 # --- SIDEBAR: REFRESH & QUICK ACTIONS ---
@@ -367,37 +371,42 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
         "👥 Member Schedule View"
     ])
 
-    # Pre-process Planning DF with flexible date parsing and loose matching columns
     if planning_df is not None and not planning_df.empty:
-        # Flexible date parsing supporting any format automatically
         planning_df['parsed_date'] = pd.to_datetime(planning_df['Date'], dayfirst=True, errors='coerce')
         planning_df['CleanMember'] = planning_df['AssignedMember'].astype(str).str.strip()
         planning_df['CleanTask'] = planning_df['Task'].astype(str).str.strip()
         planning_df['NormalizedTask'] = planning_df['CleanTask'].apply(lambda x: task_id_to_name.get(x, x))
 
-    # Fail-safe lookup function using loose substring and case-insensitive matching
-    def get_last_performed_date(p_df, member_name, task_name):
+    # Detailed history lookup function with overall activity fallback
+    def get_member_task_history_info(p_df, member_name, task_name):
         if p_df is None or p_df.empty:
-            return None
+            return None, "Never"
         
         m_upper = member_name.strip().upper()
         t_upper = task_name.strip().upper()
         t_id = task_name_to_id.get(task_name, "").upper()
         
-        # Match where member name matches cleanly and task matches code, ID, or normalized name
-        sub = p_df[
+        task_sub = p_df[
             (p_df['CleanMember'].str.upper() == m_upper) &
             (
                 (p_df['CleanTask'].str.upper() == t_upper) |
                 (p_df['CleanTask'].str.upper() == t_id) |
-                (p_df['NormalizedTask'].str.upper() == t_upper) |
-                (p_df['CleanTask'].str.upper().str.contains(t_upper))
+                (p_df['NormalizedTask'].str.upper() == t_upper)
             )
         ].dropna(subset=['parsed_date'])
         
-        if not sub.empty:
-            return sub['parsed_date'].max().date()
-        return None
+        if not task_sub.empty:
+            max_d = task_sub['parsed_date'].max().date()
+            return max_d, max_d.strftime('%d/%m/%Y')
+        
+        member_sub = p_df[p_df['CleanMember'].str.upper() == m_upper].dropna(subset=['parsed_date'])
+        if not member_sub.empty:
+            last_any_row = member_sub.sort_values(by='parsed_date', ascending=False).iloc[0]
+            any_d_str = last_any_row['parsed_date'].strftime('%d/%m/%Y')
+            any_task = last_any_row['Task']
+            return None, f"Never done {task_name} (Last active: {any_d_str} on {any_task})"
+        
+        return None, "Never"
 
     # ================= TAB 1: SCHEDULE GENERATOR & QUICK SWAP =================
     with tab_gen:
@@ -617,7 +626,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                 date_str_fmt = selected_swap_date.strftime('%d/%m/%Y')
                 sub_df = planning_df[planning_df['parsed_date'].dt.date == selected_swap_date]
                 
-                task_options = [clean_s(t) for t in sub_df['NormalizedTask'].unique()]
+                task_options = [t for t in task_names if t in sub_df['NormalizedTask'].unique()]
                 selected_swap_task = st.selectbox("Select Task / Role", options=task_options, key="swap_task_sel")
                 
                 current_assigned = sub_df[sub_df['NormalizedTask'] == selected_swap_task]['CleanMember'].values
@@ -647,14 +656,13 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                     default_past_date = date(2000, 1, 1)
                     
                     for m in eligible_names:
-                        last_d = get_last_performed_date(planning_df, m, selected_swap_task)
+                        last_d, d_str = get_member_task_history_info(planning_df, m, selected_swap_task)
                         sort_d = last_d if last_d else default_past_date
-                        member_scores.append((m, sort_d))
+                        member_scores.append((m, sort_d, d_str))
                     
                     member_scores.sort(key=lambda x: x[1])
                     
-                    for m, d in member_scores:
-                        d_str = "Never" if d == default_past_date else d.strftime('%d/%m/%Y')
+                    for m, _, d_str in member_scores:
                         recommended_members_ranked.append((m, f"{m} (Last done: {d_str})"))
 
                 swap_mode = st.radio("Replacement Type", options=["Recommended Church Member (Sorted Oldest-First)", "All Members List", "Custom Visitor / Guest (e.g., Visiting Pastor)"], key="swap_mode_radio")
@@ -740,14 +748,8 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                     default_p_date = date(2000, 1, 1)
                     
                     for m in comp_members:
-                        last_d = get_last_performed_date(valid_p_df, m, sel_task_query)
-                        if last_d:
-                            d_display = last_d.strftime('%d/%m/%Y')
-                            sort_d = last_d
-                        else:
-                            d_display = "Tsy mbola nanao (Never)"
-                            sort_d = default_p_date
-                            
+                        last_d, d_display = get_member_task_history_info(valid_p_df, m, sel_task_query)
+                        sort_d = last_d if last_d else default_p_date
                         query_rows.append({"Anarana (Member)": m, "Daty farany (Last Date)": d_display, "_sort": sort_d})
                     
                     query_result_df = pd.DataFrame(query_rows).sort_values(by="_sort", ascending=True).drop(columns=['_sort'])
@@ -769,13 +771,6 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                     st.dataframe(m_display_df, use_container_width=True, hide_index=True)
                 else:
                     st.info(f"No past assignment records found for {sel_member_query}.")
-
-            # --- DEBUG INSPECTOR (TO IDENTIFY ANY MISMATCHES INSTANTLY) ---
-            with st.expander("🛠️ Debug Planning Data Inspector"):
-                st.markdown("If dates are still showing 'Never', check below to see how your `Planning.csv` rows are loaded:")
-                st.write(f"Total rows in Planning.csv: {len(planning_df)}")
-                st.write(f"Successfully parsed dates: {planning_df['parsed_date'].notna().sum()}")
-                st.dataframe(planning_df[['Date', 'Task', 'AssignedMember', 'CleanMember', 'CleanTask', 'NormalizedTask', 'parsed_date']].head(10), use_container_width=True)
         else:
             st.info("No planning history available yet. Generate a schedule first!")
 
@@ -829,12 +824,21 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                 if reference_date not in latest_dates_slice:
                     latest_dates_slice.append(reference_date)
 
-                filtered_plan = valid_plan[valid_plan['parsed_date'].dt.date.isin(latest_dates_slice)]
-                display_df = filtered_plan.drop(columns=['parsed_date', 'CleanMember', 'CleanTask', 'NormalizedTask'], errors='ignore')
+                filtered_plan = valid_plan[valid_plan['parsed_date'].dt.date.isin(latest_dates_slice)].copy()
+                
+                # Apply Tasks.csv ordering to pivot rows
+                if task_names:
+                    task_cat = pd.CategoricalDtype(categories=task_names, ordered=True)
+                    filtered_plan['TaskOrder'] = filtered_plan['NormalizedTask'].astype(task_cat)
+                    filtered_plan = filtered_plan.sort_values(by='TaskOrder')
+
+                display_df = filtered_plan.drop(columns=['parsed_date', 'CleanMember', 'CleanTask', 'NormalizedTask', 'TaskOrder'], errors='ignore')
 
                 st.info(f"Displaying schedule for the most recent {num_latest_to_show} Sabbath generation(s) + nearest coming reference Sabbath.")
                 
                 pivot_df = display_df.pivot(index='Task', columns='Date', values='AssignedMember')
+                if task_names:
+                    pivot_df = pivot_df.reindex([t for t in task_names if t in pivot_df.index])
                 st.dataframe(pivot_df, use_container_width=True)
             else:
                 st.info("No valid dated planning records found yet.")
