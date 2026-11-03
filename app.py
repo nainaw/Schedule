@@ -515,6 +515,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
     ])
 
     if planning_df is not None and not planning_df.empty:
+        # STRICT DAYFIRST DATE PARSING
         planning_df['parsed_date'] = pd.to_datetime(planning_df['Date'], dayfirst=True, errors='coerce')
         planning_df['CleanMember'] = planning_df['AssignedMember'].astype(str).str.strip()
         planning_df['CleanTask'] = planning_df['Task'].astype(str).str.strip()
@@ -623,8 +624,6 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                 st.info("ℹ️ All selected Sabbath dates already exist in your Planning history. No new schedules needed to be generated.")
             else:
                 generated_rows = []
-
-                # Sort generated Sabbaths chronologically to ensure proper sequential priority flow
                 valid_saturdays.sort(key=lambda x: x[0])
 
                 for sat, s_idx in valid_saturdays:
@@ -694,7 +693,6 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                                 not_yet_assigned = [m for m in eligible if m not in assigned_on_this_sabbath]
                                 pool = not_yet_assigned if not_yet_assigned else eligible
 
-                                # Calendar-aware rest check (> 13 days gap allows re-selection)
                                 rested_pool = []
                                 for m in pool:
                                     last_serv_date = member_last_service_date.get(m)
@@ -716,10 +714,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                                 oldest_date = min(member_last_dates.values())
                                 candidates = [m for m, d in member_last_dates.items() if d == oldest_date]
                                 
-                                # FIX: If multiple candidates have the same historical date, sort/pick deterministically 
-                                # so chronological order matches naturally across columns without inversions.
-                                candidates.sort()
-                                assigned_person = candidates[0] if len(candidates) > 0 else np.random.choice(candidates)
+                                assigned_person = candidates[0] if len(candidates) == 1 else np.random.choice(candidates)
                                 
                                 last_performed_date[assigned_person][t_name] = sat
                                 member_last_service_date[assigned_person] = sat
