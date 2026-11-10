@@ -724,112 +724,19 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                     assigned_on_this_sabbath = set()
                     sabbath_schedule = {}
 
-                    # Build a running history DataFrame for staleness checking during this batch run
-                    current_planning_history_df = planning_df.copy() if planning_df is not None else pd.DataFrame(columns=["Date", "Task", "AssignedMember", "parsed_date", "CleanMember", "CleanTask", "NormalizedTask"])
-
-                    for task, _ in task_scarcity:
-                        t_id = clean_s(task['id'])
-                        t_name = clean_s(task['name'])
-
-                        if active_group and t_name in group_tasks:
-                            assigned_person = active_group
-                        else:
-                            competent_member_ids = competencies_df[competencies_df['tasks_id'].astype(str).str.strip() == t_id]['member_id'].tolist()
-                            eligible_df = members_df[(members_df['id'].isin(competent_member_ids)) & (members_df['available'] == True)]
-
-                            if s_idx == 3 and 'Youth' in members_df.columns:
-                                youth_mask = members_df['Youth'].astype(str).str.upper().isin(['TRUE', 'YES', '1']) | (members_df['Youth'] == True)
-                                eligible_df = eligible_df[youth_mask]
-
-                            is_trimester_start_month = sat.month in [1, 4, 7, 10]
-                            if t_name == "CUTL" and is_trimester_start_month and s_idx == elder_sabbath_choice and s_idx != 3:
-                                if 'Elder' in members_df.columns:
-                                    elder_filter = members_df['Elder'].astype(str).str.upper().isin(['TRUE', 'YES', '1']) | (members_df['Elder'] == True)
-                                    elder_member_ids = members_df[elder_filter]['id'].tolist()
-                                    eligible_df = eligible_df[eligible_df['id'].isin(elder_member_ids)]
-
-                            eligible = [clean_s(m) for m in eligible_df['name'].tolist()]
-
-                            if eligible:
-                                # 2. Filter out members already assigned on this same date
-                                not_yet_assigned = [m for m in eligible if m not in assigned_on_this_sabbath]
-                                pool = not_yet_assigned if not_yet_assigned else eligible
-
-                                rested_pool = []
-                                for m in pool:
-                                    last_serv_date = member_last_service_date.get(m)
-                                    if last_serv_date is None:
-                                        rested_pool.append(m)
-                                    else:
-                                        days_diff = (sat - last_serv_date).days
-                                        if days_diff >= 13:
-                                            rested_pool.append(m)
-
-                                final_pool = rested_pool if rested_pool else pool
-
-                                # 3. Calculate staleness for THIS specific task
-                                member_last_dates = {
-                                    m: get_member_task_staleness(m, t_name, current_planning_history_df, date_str)
-                                    for m in final_pool
-                                }
-                                
-                                # 4. Enhanced Fairness & Bottleneck Evaluation
-                                def candidate_fairness_score(m):
-                                    task_dt = member_last_dates[m]
-                                    
-                                    # Check if member has a severely neglected task elsewhere (e.g. FTV)
-                                    has_older_neglected_task = is_member_held_for_older_task(
-                                        m, t_name, task_names, current_planning_history_df, 
-                                        date_str, competencies_df, members_df, task_name_to_id
-                                    )
-                                    
-                                    # Check if this member is single-competency (or has very few competencies)
-                                    m_id_row = members_df[members_df['name'].str.strip().str.upper() == m.strip().upper()]
-                                    is_single_task_member = False
-                                    if not m_id_row.empty:
-                                        m_uuid = m_id_row['id'].iloc[0]
-                                        member_comp_count = len(competencies_df[competencies_df['member_id'].astype(str).str.strip() == str(m_uuid).strip()])
-                                        if member_comp_count <= 1:
-                                            is_single_task_member = True
-
-                                    # Scoring weights:
-                                    # - If they have a severely neglected multi-task duty, heavily defer them (push date way forward)
-                                    # - If they are a single-task specialist, give them a fair baseline so they aren't unfairly starved or overly hammered
-                                    penalty_days = 0
-                                    if has_older_neglected_task and not is_single_task_member:
-                                        penalty_days = 730  # 2 years penalty to force multi-taskers to clear their backlog
-                                        
-                                    return task_dt + timedelta(days=penalty_days)
-
-                                sorted_candidates = sorted(final_pool, key=lambda m: member_last_dates[m])
-                                
-                                chosen_person = None
-                                # Filter out candidates held for older neglected tasks, as long as we have backups
-                                non_held_candidates = [
-                                    c for c in sorted_candidates 
-                                    if not is_member_held_for_older_task(c, t_name, task_names, current_planning_history_df, date_str, competencies_df, members_df, task_name_to_id)
-                                ]
-                                
-                                if non_held_candidates:
-                                    chosen_person = non_held_candidates[0]
-                                else:
-                                    chosen_person = sorted_candidates[0] # Fallback if everyone is held
-                                    
-                                assigned_person = chosen_person
-
-                        sabbath_schedule[t_name] = assigned_person
-
-                    for _, task in tasks_df.iterrows():
-                        t_name = clean_s(task['name'])
-                        generated_rows.append({
-                            "Date": date_str,
-                            "Task": t_name,
-                            "AssignedMember": sabbath_schedule.get(t_name, "Unassigned")
-                        })
-
-                result_df = pd.DataFrame(generated_rows)
-                st.success("✨ Schedule successfully generated for new dates!")
-                st.dataframe(result_df, use_container_width=True)
+                    # Build a running history DataFrame with all required structural columns
+                    if planning_df is not None and not planning_df.empty:
+                        current_planning_history_df = planning_df.copy()
+                        if 'parsed_date' not in current_planning_history_df.columns:
+                            current_planning_history_df['parsed_date'] = pd.to_datetime(current_planning_history_df['Date'], dayfirst=True, errors='coerce')
+                        if 'CleanMember' not in current_planning_history_df.columns:
+                            current_planning_history_df['CleanMember'] = current_planning_history_df['AssignedMember'].astype(str).str.strip()
+                        if 'CleanTask' not in current_planning_history_df.columns:
+                            current_planning_history_df['CleanTask'] = current_planning_history_df['Task'].astype(str).str.strip()
+                        if 'NormalizedTask' not in current_planning_history_df.columns:
+                            current_planning_history_df['NormalizedTask'] = current_planning_history_df['CleanTask'].apply(lambda x: task_id_to_name.get(x, x))
+                    else:
+                        current_planning_history_df = pd.DataFrame(columns=["Date", "Task", "AssignedMember", "parsed_date", "CleanMember", "CleanTask", "NormalizedTask"])
 
                 with st.spinner("Updating Planning.csv, auto-pruning old history, and publishing web page..."):
                     if planning_df is not None and not planning_df.empty:
