@@ -755,20 +755,36 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                                     m: get_member_task_staleness(m, t_name, current_planning_history_df, date_str)
                                     for m in final_pool
                                 }
-
-                                # 4. Score candidates: penalize candidates holding out for vastly older duties
-                                # instead of completely disqualifying them (prevents fallback overrides)
-                                def candidate_priority_score(m):
+                                
+                                # 4. Enhanced Fairness & Bottleneck Evaluation
+                                def candidate_fairness_score(m):
                                     task_dt = member_last_dates[m]
-                                    held = is_member_held_for_older_task(
-                                        m, t_name, task_names, current_planning_history_df,
+                                    
+                                    # Check if member has a severely neglected task elsewhere (e.g. FTV)
+                                    has_older_neglected_task = is_member_held_for_older_task(
+                                        m, t_name, task_names, current_planning_history_df, 
                                         date_str, competencies_df, members_df, task_name_to_id
                                     )
-                                    # Add a 1-year penalty shift if they have a much older duty waiting (like FTV)
-                                    penalty = timedelta(days=365) if held else timedelta(days=0)
-                                    return task_dt + penalty
+                                    
+                                    # Check if this member is single-competency (or has very few competencies)
+                                    m_id_row = members_df[members_df['name'].str.strip().str.upper() == m.strip().upper()]
+                                    is_single_task_member = False
+                                    if not m_id_row.empty:
+                                        m_uuid = m_id_row['id'].iloc[0]
+                                        member_comp_count = len(competencies_df[competencies_df['member_id'].astype(str).str.strip() == str(m_uuid).strip()])
+                                        if member_comp_count <= 1:
+                                            is_single_task_member = True
 
-                                sorted_candidates = sorted(final_pool, key=candidate_priority_score)
+                                    # Scoring weights:
+                                    # - If they have a severely neglected multi-task duty, heavily defer them (push date way forward)
+                                    # - If they are a single-task specialist, give them a fair baseline so they aren't unfairly starved or overly hammered
+                                    penalty_days = 0
+                                    if has_older_neglected_task and not is_single_task_member:
+                                        penalty_days = 730  # 2 years penalty to force multi-taskers to clear their backlog
+                                        
+                                    return task_dt + timedelta(days=penalty_days)
+
+                                sorted_candidates = sorted(final_pool, key=candidate_fairness_score)
                                 assigned_person = sorted_candidates[0] if sorted_candidates else "Unassigned"
 
                                 last_performed_date[assigned_person][t_name] = sat
