@@ -605,6 +605,43 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                     if global_latest is None or p_date > global_latest:
                         member_last_service_date[m_name] = p_date
 
+def get_member_task_staleness(member, task_name, h_df, target_date_str):
+            """Returns the date when 'member' last performed 'task_name'. Returns 1900-01-01 if never."""
+            target_dt = datetime.strptime(target_date_str, "%d/%m/%Y")
+            task_sub = h_df[
+                (h_df['CleanMember'].str.upper() == member.strip().upper()) & 
+                (
+                    (h_df['CleanTask'].str.upper() == task_name.strip().upper()) | 
+                    (h_df['NormalizedTask'].str.upper() == task_name.strip().upper())
+                ) &
+                (pd.to_datetime(h_df['Date'], dayfirst=True, errors='coerce') < target_dt)
+            ]
+            if task_sub.empty:
+                return datetime(1900, 1, 1)
+            last_d_str = task_sub.dropna(subset=['parsed_date']).sort_values(by='parsed_date', ascending=False)['Date'].iloc[0]
+            return datetime.strptime(last_d_str, "%d/%m/%Y")
+
+        def is_member_held_for_older_task(member, current_task, all_tasks, h_df, target_date_str, comp_df, mem_df):
+            """Checks if 'member' has another task that is significantly more overdue than 'current_task'."""
+            current_task_last_dt = get_member_task_staleness(member, current_task, h_df, target_date_str)
+            
+            for other_task in all_tasks:
+                if other_task == current_task:
+                    continue
+                
+                # Check if member is competent in other_task
+                t_id_other = task_name_to_id.get(other_task, "")
+                comp_ids = comp_df[comp_df['tasks_id'].astype(str).str.strip() == t_id_other]['member_id'].tolist()
+                member_row = mem_df[mem_df['name'].str.strip().str.upper() == member.strip().upper()]
+                
+                if not member_row.empty and member_row['id'].iloc[0] in comp_ids:
+                    other_task_last_dt = get_member_task_staleness(member, other_task, h_df, target_date_str)
+                    
+                    # If another task was last done > 60 days longer ago than current_task, hold back
+                    if (current_task_last_dt - other_task_last_dt).days > 60:
+                        return True
+            return False
+
         if st.button("🚀 Generate Schedule"):
             valid_saturdays = []
             skipped_dates = []
@@ -659,10 +696,14 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                         
                         task_scarcity.append((task, competent_count))
 
+                    # 1. Sort tasks by scarcity (fewest members first)
                     task_scarcity.sort(key=lambda x: x[1])
 
                     assigned_on_this_sabbath = set()
                     sabbath_schedule = {}
+
+                    # Build a running history DataFrame for staleness checking during this batch run
+                    current_planning_history_df = planning_df.copy() if planning_df is not None else pd.DataFrame(columns=["Date", "Task", "AssignedMember", "parsed_date", "CleanMember", "CleanTask", "NormalizedTask"])
 
                     for task, _ in task_scarcity:
                         t_id = clean_s(task['id'])
@@ -688,6 +729,7 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                             eligible = [clean_s(m) for m in eligible_df['name'].tolist()]
                             
                             if eligible:
+                                # 2. Filter out members already assigned on this same date
                                 not_yet_assigned = [m for m in eligible if m not in assigned_on_this_sabbath]
                                 pool = not_yet_assigned if not_yet_assigned else eligible
 
@@ -703,20 +745,42 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
 
                                 final_pool = rested_pool if rested_pool else pool
 
-                                default_old_date = date(2000, 1, 1)
+                                # 3. Sort pool by oldest last-date for THIS specific task
                                 member_last_dates = {
-                                    m: last_performed_date.get(m, {}).get(t_name, default_old_date) 
+                                    m: get_member_task_staleness(m, t_name, current_planning_history_df, date_str)
                                     for m in final_pool
                                 }
                                 
-                                oldest_date = min(member_last_dates.values())
-                                candidates = [m for m, d in member_last_dates.items() if d == oldest_date]
+                                sorted_candidates = sorted(final_pool, key=lambda m: member_last_dates[m])
                                 
-                                assigned_person = candidates[0] if len(candidates) == 1 else np.random.choice(candidates)
+                                chosen_person = None
+                                # 4. Evaluate candidates and skip if they are being held for a much older neglected duty (Point 2)
+                                for candidate in sorted_candidates:
+                                    if not is_member_held_for_older_task(candidate, t_name, task_names, current_planning_history_df, date_str, competencies_df, members_df):
+                                        chosen_person = candidate
+                                        break
+                                
+                                # Fallback if all candidates are held
+                                if not chosen_person and sorted_candidates:
+                                    chosen_person = sorted_candidates[0]
+                                    
+                                assigned_person = chosen_person
                                 
                                 last_performed_date[assigned_person][t_name] = sat
                                 member_last_service_date[assigned_person] = sat
                                 assigned_on_this_sabbath.add(assigned_person)
+                                
+                                # Append temporarily to running history dataframe so subsequent task loops on the same day account for it
+                                new_row_temp = pd.DataFrame([{
+                                    "Date": date_str,
+                                    "Task": t_name,
+                                    "AssignedMember": assigned_person,
+                                    "parsed_date": pd.to_datetime(date_str, format="%d/%m/%Y"),
+                                    "CleanMember": assigned_person,
+                                    "CleanTask": t_name,
+                                    "NormalizedTask": t_name
+                                }])
+                                current_planning_history_df = pd.concat([current_planning_history_df, new_row_temp], ignore_index=True)
                             else:
                                 assigned_person = "Unassigned"
 
