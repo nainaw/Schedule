@@ -52,6 +52,31 @@ def push_file_to_github(file_path, content_str, commit_message):
     res = requests.put(url, headers=headers, data=json.dumps(payload))
     return res.status_code in [200, 201]
 
+def get_member_task_staleness(member, task_name, h_df, target_date_str):
+    """Returns the date when 'member' last performed 'task_name'. Returns 1900-01-01 if never."""
+    if h_df is None or h_df.empty:
+        return datetime(1900, 1, 1)
+    
+    target_dt = datetime.strptime(target_date_str, "%d/%m/%Y")
+    m_clean = member.strip().upper()
+    t_clean = task_name.strip().upper()
+    
+    task_sub = h_df[
+        (h_df['CleanMember'].str.upper() == m_clean) & 
+        (
+            (h_df['CleanTask'].str.upper() == t_clean) | 
+            (h_df['NormalizedTask'].str.upper() == t_clean)
+        ) &
+        (pd.to_datetime(h_df['Date'], dayfirst=True, errors='coerce') < target_dt)
+    ]
+    if task_sub.empty:
+        return datetime(1900, 1, 1)
+    
+    valid_dates = pd.to_datetime(task_sub['Date'], dayfirst=True, errors='coerce').dropna()
+    if valid_dates.empty:
+        return datetime(1900, 1, 1)
+        
+    return valid_dates.max().to_pydatetime()
 
 # --- AUTOMATED PLANNING PRUNING ---
 def prune_planning_data(planning_df, max_rows=1000):
