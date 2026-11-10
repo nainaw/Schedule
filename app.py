@@ -61,13 +61,19 @@ def get_member_task_staleness(member, task_name, h_df, target_date_str):
     m_clean = member.strip().upper()
     t_clean = task_name.strip().upper()
     
+    # Ensure safe fallback columns if missing
+    cm_col = h_df['CleanMember'] if 'CleanMember' in h_df.columns else h_df['AssignedMember'].astype(str).str.strip()
+    ct_col = h_df['CleanTask'] if 'CleanTask' in h_df.columns else h_df['Task'].astype(str).str.strip()
+    nt_col = h_df['NormalizedTask'] if 'NormalizedTask' in h_df.columns else ct_col
+    date_col = h_df['parsed_date'] if 'parsed_date' in h_df.columns else pd.to_datetime(h_df['Date'], dayfirst=True, errors='coerce')
+
     task_sub = h_df[
-        (h_df['CleanMember'].str.upper() == m_clean) & 
+        (cm_col.str.upper() == m_clean) & 
         (
-            (h_df['CleanTask'].str.upper() == t_clean) | 
-            (h_df['NormalizedTask'].str.upper() == t_clean)
+            (ct_col.str.upper() == t_clean) | 
+            (nt_col.str.upper() == t_clean)
         ) &
-        (pd.to_datetime(h_df['Date'], dayfirst=True, errors='coerce') < target_dt)
+        (date_col < target_dt)
     ]
     if task_sub.empty:
         return datetime(1900, 1, 1)
