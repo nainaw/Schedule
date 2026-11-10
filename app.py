@@ -750,26 +750,26 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
 
                                 final_pool = rested_pool if rested_pool else pool
 
-                                # 3. Sort pool by oldest last-date for THIS specific task
+                                # 3. Calculate staleness for THIS specific task
                                 member_last_dates = {
                                     m: get_member_task_staleness(m, t_name, current_planning_history_df, date_str)
                                     for m in final_pool
                                 }
 
-                                sorted_candidates = sorted(final_pool, key=lambda m: member_last_dates[m])
+                                # 4. Score candidates: penalize candidates holding out for vastly older duties
+                                # instead of completely disqualifying them (prevents fallback overrides)
+                                def candidate_priority_score(m):
+                                    task_dt = member_last_dates[m]
+                                    held = is_member_held_for_older_task(
+                                        m, t_name, task_names, current_planning_history_df,
+                                        date_str, competencies_df, members_df, task_name_to_id
+                                    )
+                                    # Add a 1-year penalty shift if they have a much older duty waiting (like FTV)
+                                    penalty = timedelta(days=365) if held else timedelta(days=0)
+                                    return task_dt + penalty
 
-                                chosen_person = None
-                                # 4. Evaluate candidates and skip if they are being held for a much older neglected duty (Point 2)
-                                for candidate in sorted_candidates:
-                                    if not is_member_held_for_older_task(candidate, t_name, task_names, current_planning_history_df, date_str, competencies_df, members_df, task_name_to_id):
-                                        chosen_person = candidate
-                                        break
-
-                                # Fallback if all candidates are held
-                                if not chosen_person and sorted_candidates:
-                                    chosen_person = sorted_candidates[0]
-
-                                assigned_person = chosen_person
+                                sorted_candidates = sorted(final_pool, key=candidate_priority_score)
+                                assigned_person = sorted_candidates[0] if sorted_candidates else "Unassigned"
 
                                 last_performed_date[assigned_person][t_name] = sat
                                 member_last_service_date[assigned_person] = sat
