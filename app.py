@@ -39,7 +39,7 @@ def push_file_to_github(file_path, content_str, commit_message):
 
     _, sha, branch = get_github_repo_file(file_path)
     url = f"https://api.github.com/repos/{repo}/contents/{file_path}"
-    
+
     encoded = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
     payload = {
         "message": commit_message,
@@ -58,16 +58,58 @@ def prune_planning_data(planning_df, max_rows=1000):
     """Trims oldest Sabbath dates if Planning.csv exceeds max_rows to maintain peak performance."""
     if planning_df is None or len(planning_df) <= max_rows:
         return planning_df
-    
+
     df_copy = planning_df.copy()
     df_copy['parsed_date'] = pd.to_datetime(df_copy['Date'], dayfirst=True, errors='coerce')
     unique_dates = sorted(df_copy['parsed_date'].dropna().dt.date.unique())
-    
+
     while len(df_copy) > max_rows and len(unique_dates) > 50:
         oldest_date = unique_dates.pop(0)
         df_copy = df_copy[df_copy['parsed_date'].dt.date != oldest_date]
-        
+
     return df_copy.drop(columns=['parsed_date'], errors='ignore')
+
+
+# --- GLOBAL TASK STALENESS & OVERDUE TASK PROTECTION HELPERS ---
+def get_member_task_staleness(member, task_name, h_df, target_date_str):
+    """Returns the date when 'member' last performed 'task_name'. Returns 1900-01-01 if never."""
+    if h_df is None or h_df.empty:
+        return datetime(1900, 1, 1)
+
+    target_dt = datetime.strptime(target_date_str, "%d/%m/%Y")
+    task_sub = h_df[
+        (h_df['CleanMember'].str.upper() == member.strip().upper()) &
+        (
+            (h_df['CleanTask'].str.upper() == task_name.strip().upper()) |
+            (h_df['NormalizedTask'].str.upper() == task_name.strip().upper())
+        ) &
+        (pd.to_datetime(h_df['Date'], dayfirst=True, errors='coerce') < target_dt)
+    ]
+    if task_sub.empty:
+        return datetime(1900, 1, 1)
+
+    last_d_str = task_sub.dropna(subset=['parsed_date']).sort_values(by='parsed_date', ascending=False)['Date'].iloc[0]
+    return datetime.strptime(last_d_str, "%d/%m/%Y")
+
+def is_member_held_for_older_task(member, current_task, all_tasks, h_df, target_date_str, comp_df, mem_df, task_name_to_id):
+    """Checks if 'member' has another task that is significantly more overdue than 'current_task'."""
+    current_task_last_dt = get_member_task_staleness(member, current_task, h_df, target_date_str)
+
+    for other_task in all_tasks:
+        if other_task == current_task:
+            continue
+
+        t_id_other = task_name_to_id.get(other_task, "")
+        comp_ids = comp_df[comp_df['tasks_id'].astype(str).str.strip() == t_id_other]['member_id'].tolist()
+        member_row = mem_df[mem_df['name'].str.strip().str.upper() == member.strip().upper()]
+
+        if not member_row.empty and member_row['id'].iloc[0] in comp_ids:
+            other_task_last_dt = get_member_task_staleness(member, other_task, h_df, target_date_str)
+
+            # If another task (e.g. FTV) was last done >60 days longer ago than current_task (e.g. CUTA), hold back
+            if (current_task_last_dt - other_task_last_dt).days > 60:
+                return True
+    return False
 
 
 # --- AUTO-PUBLISH PUBLIC HTML PAGE (WITH VIEW TOGGLE CHECKBOX & FORCED PRINT TABLE) ---
@@ -75,7 +117,7 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
     """Publishes index.html with a checkbox toggle for Card vs Table view, forcing table view on print."""
     if planning_df is None or planning_df.empty:
         return
-    
+
     task_desc_map = {}
     ordered_task_names = []
     if tasks_df is not None and 'name' in tasks_df.columns:
@@ -87,10 +129,10 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
     df['parsed_date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')
     df['CleanTask'] = df['Task'].astype(str).str.strip()
     df['CleanMember'] = df['AssignedMember'].astype(str).str.strip()
-    
+
     valid_plan = df.dropna(subset=['parsed_date']).sort_values(by='parsed_date')
     unique_dates = valid_plan['parsed_date'].dt.date.unique()
-    
+
     if len(unique_dates) == 0:
         return
 
@@ -104,7 +146,7 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
     latest_dates_slice = sorted(list(set(latest_dates_slice)))
 
     filtered_plan = valid_plan[valid_plan['parsed_date'].dt.date.isin(latest_dates_slice)].copy()
-    
+
     if ordered_task_names:
         task_cat = pd.CategoricalDtype(categories=ordered_task_names, ordered=True)
         filtered_plan['TaskOrder'] = filtered_plan['CleanTask'].astype(task_cat)
@@ -115,19 +157,19 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
     for d in sorted(latest_dates_slice):
         date_str = d.strftime('%d/%m/%Y')
         day_df = filtered_plan[filtered_plan['parsed_date'].dt.date == d]
-        
+
         rows_html = ""
         for _, row in day_df.iterrows():
             t_code = str(row['CleanTask']).strip()
             t_display = task_desc_map.get(t_code, t_code)
-            
+
             rows_html += f"""
             <div class="schedule-row">
                 <span class="task-name">{t_display}</span>
                 <span class="member-name">{str(row['CleanMember']).strip()}</span>
             </div>
             """
-            
+
         sabbath_cards_html += f"""
         <div class="sabbath-card">
             <div class="card-date-header">{date_str}</div>
@@ -140,7 +182,7 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
     # --- 2. BUILD MATRIX TABLE HTML ---
     date_cols_str = [d.strftime('%d/%m/%Y') for d in latest_dates_slice]
     pivot_table = filtered_plan.pivot_table(index='CleanTask', columns='Date', values='CleanMember', aggfunc='first')
-    
+
     if ordered_task_names:
         existing_tasks = [t for t in ordered_task_names if t in pivot_table.index]
         pivot_table = pivot_table.reindex(existing_tasks)
@@ -336,10 +378,10 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
             .btn-print, .toggle-container {{ display: none !important; }}
             body {{ background-color: white; padding: 0; margin: 0; }}
             .container {{ max-width: 100%; padding: 0; }}
-            
+
             .web-cards-view {{ display: none !important; }}
             .print-table-view {{ display: block !important; box-shadow: none !important; padding: 0 !important; }}
-            
+
             table {{
                 width: 100%;
                 border-collapse: collapse;
@@ -364,7 +406,7 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
 <body>
     <div class="container">
         <h1 class="main-title">Anjara Fanompoana Isan-Tsabata</h1>
-        
+
         <input type="checkbox" id="table-toggle" style="display: none;">
 
         <div class="controls-bar">
@@ -374,7 +416,7 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
                 <span>Turn on Table form (Endrika Tabilao)</span>
             </label>
         </div>
-        
+
         <div class="web-cards-view">
             {sabbath_cards_html}
         </div>
@@ -391,7 +433,7 @@ def publish_public_schedule_page(planning_df, tasks_df, num_latest=3):
                 </tbody>
             </table>
         </div>
-        
+
         <div class="footer">
             <p>Namboarina tamin'ny alalan'ny rafitra mandeha ho azy</p>
         </div>
@@ -508,9 +550,9 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
 
     # --- MAIN NAVIGATION TABS ---
     tab_gen, tab_analytics, tab_crud, tab_view = st.tabs([
-        "🚀 Schedule Generator & Quick Swap", 
+        "🚀 Schedule Generator & Quick Swap",
         "🔍 Rotation Analytics & Query",
-        "📊 Data Management (CRUD)", 
+        "📊 Data Management (CRUD)",
         "👥 Member Schedule View"
     ])
 
@@ -523,11 +565,11 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
     def get_member_task_history_info(p_df, member_name, task_name):
         if p_df is None or p_df.empty:
             return None, "Never"
-        
+
         m_upper = member_name.strip().upper()
         t_upper = task_name.strip().upper()
         t_id = task_name_to_id.get(task_name, "").upper()
-        
+
         task_sub = p_df[
             (p_df['CleanMember'].str.upper() == m_upper) &
             (
@@ -536,18 +578,18 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                 (p_df['NormalizedTask'].str.upper() == t_upper)
             )
         ].dropna(subset=['parsed_date'])
-        
+
         if not task_sub.empty:
             max_d = task_sub['parsed_date'].max().date()
             return max_d, max_d.strftime('%d/%m/%Y')
-        
+
         member_sub = p_df[p_df['CleanMember'].str.upper() == m_upper].dropna(subset=['parsed_date'])
         if not member_sub.empty:
             last_any_row = member_sub.sort_values(by='parsed_date', ascending=False).iloc[0]
             any_d_str = last_any_row['parsed_date'].strftime('%d/%m/%Y')
             any_task = last_any_row['Task']
             return None, f"Never done {task_name} (Last active: {any_d_str} on {any_task})"
-        
+
         return None, "Never"
 
     # ================= TAB 1: SCHEDULE GENERATOR & QUICK SWAP =================
@@ -593,59 +635,22 @@ if members_df is not None and competencies_df is not None and tasks_df is not No
                 t_val = str(row.get('CleanTask', '')).strip()
                 t_name = task_id_to_name.get(t_val, t_val)
                 p_date_raw = row.get('parsed_date')
-                
+
                 if m_name in available_members and pd.notna(p_date_raw):
                     p_date = pd.to_datetime(p_date_raw).date()
-                    
+
                     current_latest = last_performed_date[m_name].get(t_name)
                     if current_latest is None or p_date > current_latest:
                         last_performed_date[m_name][t_name] = p_date
-                    
+
                     global_latest = member_last_service_date.get(m_name)
                     if global_latest is None or p_date > global_latest:
                         member_last_service_date[m_name] = p_date
 
-def get_member_task_staleness(member, task_name, h_df, target_date_str):
-            """Returns the date when 'member' last performed 'task_name'. Returns 1900-01-01 if never."""
-            target_dt = datetime.strptime(target_date_str, "%d/%m/%Y")
-            task_sub = h_df[
-                (h_df['CleanMember'].str.upper() == member.strip().upper()) & 
-                (
-                    (h_df['CleanTask'].str.upper() == task_name.strip().upper()) | 
-                    (h_df['NormalizedTask'].str.upper() == task_name.strip().upper())
-                ) &
-                (pd.to_datetime(h_df['Date'], dayfirst=True, errors='coerce') < target_dt)
-            ]
-            if task_sub.empty:
-                return datetime(1900, 1, 1)
-            last_d_str = task_sub.dropna(subset=['parsed_date']).sort_values(by='parsed_date', ascending=False)['Date'].iloc[0]
-            return datetime.strptime(last_d_str, "%d/%m/%Y")
-
-        def is_member_held_for_older_task(member, current_task, all_tasks, h_df, target_date_str, comp_df, mem_df):
-            """Checks if 'member' has another task that is significantly more overdue than 'current_task'."""
-            current_task_last_dt = get_member_task_staleness(member, current_task, h_df, target_date_str)
-            
-            for other_task in all_tasks:
-                if other_task == current_task:
-                    continue
-                
-                # Check if member is competent in other_task
-                t_id_other = task_name_to_id.get(other_task, "")
-                comp_ids = comp_df[comp_df['tasks_id'].astype(str).str.strip() == t_id_other]['member_id'].tolist()
-                member_row = mem_df[mem_df['name'].str.strip().str.upper() == member.strip().upper()]
-                
-                if not member_row.empty and member_row['id'].iloc[0] in comp_ids:
-                    other_task_last_dt = get_member_task_staleness(member, other_task, h_df, target_date_str)
-                    
-                    # If another task was last done > 60 days longer ago than current_task, hold back
-                    if (current_task_last_dt - other_task_last_dt).days > 60:
-                        return True
-            return False
-
         if st.button("🚀 Generate Schedule"):
             valid_saturdays = []
             skipped_dates = []
-            
+
             for sat, s_idx in selected_saturdays:
                 if sat in existing_dates:
                     skipped_dates.append(sat.strftime('%d/%m/%Y'))
@@ -663,7 +668,7 @@ def get_member_task_staleness(member, task_name, h_df, target_date_str):
 
                 for sat, s_idx in valid_saturdays:
                     date_str = sat.strftime('%d/%m/%Y')
-                    
+
                     active_group = None
                     group_tasks = []
                     if s_idx == 1:
@@ -681,19 +686,19 @@ def get_member_task_staleness(member, task_name, h_df, target_date_str):
                     for _, task in tasks_df.iterrows():
                         t_id = clean_s(task['id'])
                         t_name = clean_s(task['name'])
-                        
+
                         if active_group and t_name in group_tasks:
                             competent_count = 0
                         else:
                             competent_member_ids = competencies_df[competencies_df['tasks_id'].astype(str).str.strip() == t_id]['member_id'].tolist()
                             eligible = members_df[(members_df['id'].isin(competent_member_ids)) & (members_df['available'] == True)]
-                            
+
                             if s_idx == 3 and 'Youth' in members_df.columns:
                                 youth_mask = members_df['Youth'].astype(str).str.upper().isin(['TRUE', 'YES', '1']) | (members_df['Youth'] == True)
                                 eligible = eligible[youth_mask]
-                                
+
                             competent_count = len(eligible)
-                        
+
                         task_scarcity.append((task, competent_count))
 
                     # 1. Sort tasks by scarcity (fewest members first)
@@ -708,13 +713,13 @@ def get_member_task_staleness(member, task_name, h_df, target_date_str):
                     for task, _ in task_scarcity:
                         t_id = clean_s(task['id'])
                         t_name = clean_s(task['name'])
-                        
+
                         if active_group and t_name in group_tasks:
                             assigned_person = active_group
                         else:
                             competent_member_ids = competencies_df[competencies_df['tasks_id'].astype(str).str.strip() == t_id]['member_id'].tolist()
                             eligible_df = members_df[(members_df['id'].isin(competent_member_ids)) & (members_df['available'] == True)]
-                            
+
                             if s_idx == 3 and 'Youth' in members_df.columns:
                                 youth_mask = members_df['Youth'].astype(str).str.upper().isin(['TRUE', 'YES', '1']) | (members_df['Youth'] == True)
                                 eligible_df = eligible_df[youth_mask]
@@ -727,7 +732,7 @@ def get_member_task_staleness(member, task_name, h_df, target_date_str):
                                     eligible_df = eligible_df[eligible_df['id'].isin(elder_member_ids)]
 
                             eligible = [clean_s(m) for m in eligible_df['name'].tolist()]
-                            
+
                             if eligible:
                                 # 2. Filter out members already assigned on this same date
                                 not_yet_assigned = [m for m in eligible if m not in assigned_on_this_sabbath]
@@ -750,26 +755,26 @@ def get_member_task_staleness(member, task_name, h_df, target_date_str):
                                     m: get_member_task_staleness(m, t_name, current_planning_history_df, date_str)
                                     for m in final_pool
                                 }
-                                
+
                                 sorted_candidates = sorted(final_pool, key=lambda m: member_last_dates[m])
-                                
+
                                 chosen_person = None
                                 # 4. Evaluate candidates and skip if they are being held for a much older neglected duty (Point 2)
                                 for candidate in sorted_candidates:
-                                    if not is_member_held_for_older_task(candidate, t_name, task_names, current_planning_history_df, date_str, competencies_df, members_df):
+                                    if not is_member_held_for_older_task(candidate, t_name, task_names, current_planning_history_df, date_str, competencies_df, members_df, task_name_to_id):
                                         chosen_person = candidate
                                         break
-                                
+
                                 # Fallback if all candidates are held
                                 if not chosen_person and sorted_candidates:
                                     chosen_person = sorted_candidates[0]
-                                    
+
                                 assigned_person = chosen_person
-                                
+
                                 last_performed_date[assigned_person][t_name] = sat
                                 member_last_service_date[assigned_person] = sat
                                 assigned_on_this_sabbath.add(assigned_person)
-                                
+
                                 # Append temporarily to running history dataframe so subsequent task loops on the same day account for it
                                 new_row_temp = pd.DataFrame([{
                                     "Date": date_str,
@@ -806,7 +811,7 @@ def get_member_task_staleness(member, task_name, h_df, target_date_str):
 
                     updated_planning_df = pd.concat([base_planning_df, result_df], ignore_index=True)
                     updated_planning_df = prune_planning_data(updated_planning_df, max_rows=max_planning_rows)
-                    
+
                     success_csv = push_file_to_github("Planning.csv", updated_planning_df.to_csv(index=False), "Auto-update & prune Planning.csv")
                     publish_public_schedule_page(updated_planning_df, tasks_df, num_latest=num_sabbaths)
 
@@ -831,60 +836,60 @@ def get_member_task_staleness(member, task_name, h_df, target_date_str):
 
         if planning_df is not None and not planning_df.empty:
             available_dates_list = sorted(planning_df['parsed_date'].dropna().dt.date.unique(), reverse=True)
-            
+
             if available_dates_list:
                 selected_swap_date = st.selectbox("Select Sabbath Date to Modify", options=available_dates_list, format_func=lambda x: x.strftime('%d/%m/%Y'), key="swap_date_sel")
-                
+
                 date_str_fmt = selected_swap_date.strftime('%d/%m/%Y')
                 sub_df = planning_df[planning_df['parsed_date'].dt.date == selected_swap_date]
-                
+
                 task_options = [t for t in task_names if t in sub_df['NormalizedTask'].unique()]
                 selected_swap_task = st.selectbox("Select Task / Role", options=task_options, key="swap_task_sel")
-                
+
                 current_assigned = sub_df[sub_df['NormalizedTask'] == selected_swap_task]['CleanMember'].values
                 current_person = current_assigned[0] if len(current_assigned) > 0 else "Unknown"
                 st.info(f"Current assigned person for **{selected_swap_task}** on **{date_str_fmt}**: **{current_person}**")
-                
+
                 recommended_members_ranked = []
-                
+
                 if members_df is not None and competencies_df is not None:
                     t_id = task_name_to_id.get(selected_swap_task, "")
                     competent_member_ids = competencies_df[competencies_df['tasks_id'].astype(str).str.strip() == t_id]['member_id'].tolist() if t_id else []
                     eligible_df = members_df[members_df['id'].isin(competent_member_ids)] if competent_member_ids else members_df.copy()
                     eligible_df = eligible_df[eligible_df['available'] == True]
-                    
+
                     first_day_of_month = date(selected_swap_date.year, selected_swap_date.month, 1)
                     first_sat = first_day_of_month + timedelta(days=(5 - first_day_of_month.weekday()) % 7)
                     s_idx = ((selected_swap_date - first_sat).days // 7) + 1
-                    
+
                     if s_idx == 3 and 'Youth' in members_df.columns:
                         youth_mask = members_df['Youth'].astype(str).str.upper().isin(['TRUE', 'YES', '1']) | (members_df['Youth'] == True)
                         eligible_df = eligible_df[youth_mask]
-                        
+
                     eligible_names = [clean_s(m) for m in eligible_df['name'].tolist()]
-                    
+
                     member_scores = []
                     default_past_date = date(2000, 1, 1)
-                    
+
                     for m in eligible_names:
                         last_d, d_str = get_member_task_history_info(planning_df, m, selected_swap_task)
                         sort_d = last_d if last_d else default_past_date
                         member_scores.append((m, sort_d, d_str))
-                    
+
                     member_scores.sort(key=lambda x: x[1])
-                    
+
                     for m, _, d_str in member_scores:
                         recommended_members_ranked.append((m, f"{m} (Last done: {d_str})"))
 
                 swap_mode = st.radio("Replacement Type", options=["Recommended Church Member (Sorted Oldest-First)", "All Members List", "Custom Visitor / Guest (e.g., Visiting Pastor)"], key="swap_mode_radio")
-                
+
                 new_assignee = ""
                 if swap_mode == "Recommended Church Member (Sorted Oldest-First)":
                     if recommended_members_ranked:
                         st.success(f"✨ **Smart Recommendations** (Sorted by longest time since last performed task):")
                         chosen_tuple = st.selectbox(
-                            "Select Best Available Replacement", 
-                            options=recommended_members_ranked, 
+                            "Select Best Available Replacement",
+                            options=recommended_members_ranked,
                             format_func=lambda x: x[1],
                             key="swap_recommended_sel"
                         )
@@ -897,18 +902,18 @@ def get_member_task_staleness(member, task_name, h_df, target_date_str):
                     new_assignee = st.selectbox("Select Replacement Member", options=all_member_names, key="swap_member_sel")
                 else:
                     new_assignee = st.text_input("Enter Guest / Visitor Name", value="Visiting Pastor", key="swap_guest_text")
-                
+
                 if st.button("🔄 Apply Task Swap"):
                     if new_assignee:
                         mask = (planning_df['parsed_date'].dt.date == selected_swap_date) & (planning_df['NormalizedTask'].str.upper() == selected_swap_task.upper())
                         planning_df.loc[mask, 'AssignedMember'] = new_assignee
-                        
+
                         clean_planning_df = planning_df.drop(columns=['parsed_date', 'CleanMember', 'CleanTask', 'NormalizedTask'], errors='ignore')
-                        
+
                         with st.spinner("Applying swap and updating GitHub..."):
                             success_swap = push_file_to_github("Planning.csv", clean_planning_df.to_csv(index=False), f"Emergency swap: {selected_swap_task} on {date_str_fmt} to {new_assignee}")
                             publish_public_schedule_page(clean_planning_df, tasks_df, num_latest=num_sabbaths)
-                            
+
                             if success_swap:
                                 st.success(f"✅ Successfully swapped **{selected_swap_task}** to **{new_assignee}** for {date_str_fmt}! Public webpage updated.")
                                 st.rerun()
@@ -919,10 +924,10 @@ def get_member_task_staleness(member, task_name, h_df, target_date_str):
                     st.markdown("---")
                     st.subheader(f"👤 Member Schedule History: {new_assignee}")
                     st.caption("Review past tasks and dates assigned to this member before/after swapping:")
-                    
+
                     valid_p_df = planning_df.dropna(subset=['parsed_date']).sort_values(by='parsed_date', ascending=False)
                     m_history_df = valid_p_df[valid_p_df['CleanMember'].str.upper() == new_assignee.strip().upper()]
-                    
+
                     if not m_history_df.empty:
                         m_display_df = m_history_df[['Date', 'Task']].copy()
                         m_display_df.columns = ['Daty (Date)', 'Andraikitra (Task)']
@@ -941,37 +946,37 @@ def get_member_task_staleness(member, task_name, h_df, target_date_str):
 
         if planning_df is not None and not planning_df.empty:
             valid_p_df = planning_df.dropna(subset=['parsed_date']).sort_values(by='parsed_date', ascending=False)
-            
+
             col_left, col_right = st.columns(2)
-            
+
             with col_left:
                 st.subheader("📋 Task History: Who does what when?")
                 sel_task_query = st.selectbox("Select Fanompoana (Task)", options=task_names, key="query_task_sel")
-                
+
                 if members_df is not None and competencies_df is not None:
                     t_id_q = task_name_to_id.get(sel_task_query, "")
                     comp_m_ids = competencies_df[competencies_df['tasks_id'].astype(str).str.strip() == t_id_q]['member_id'].tolist() if t_id_q else []
                     comp_members = [clean_s(m) for m in members_df[members_df['id'].isin(comp_m_ids)]['name'].tolist()] if comp_m_ids else [clean_s(m) for m in members_df['name'].tolist()]
-                    
+
                     query_rows = []
                     default_p_date = date(2000, 1, 1)
-                    
+
                     for m in comp_members:
                         last_d, d_display = get_member_task_history_info(valid_p_df, m, sel_task_query)
                         sort_d = last_d if last_d else default_p_date
                         query_rows.append({"Anarana (Member)": m, "Daty farany (Last Date)": d_display, "_sort": sort_d})
-                    
+
                     query_result_df = pd.DataFrame(query_rows).sort_values(by="_sort", ascending=True).drop(columns=['_sort'])
                     st.markdown(f"**Competent Members for {sel_task_query} (Sorted Oldest-First):**")
                     st.dataframe(query_result_df, use_container_width=True, hide_index=True)
-            
+
             with col_right:
                 st.subheader("👤 Member History: When does a member do tasks?")
                 all_m_names = sorted([clean_s(m) for m in members_df['name'].dropna().unique().tolist()]) if members_df is not None else []
                 sel_member_query = st.selectbox("Select Anarana (Member)", options=all_m_names, key="query_member_sel")
-                
+
                 m_history_df = valid_p_df[valid_p_df['CleanMember'].str.upper() == sel_member_query.upper()]
-                
+
                 if not m_history_df.empty:
                     m_display_df = m_history_df[['Date', 'Task']].copy()
                     m_display_df.columns = ['Daty (Date)', 'Andraikitra (Task)']
@@ -988,7 +993,7 @@ def get_member_task_staleness(member, task_name, h_df, target_date_str):
         st.markdown("View and edit your datasets directly. Changes are saved and committed straight to GitHub instantly.")
 
         dataset_choice = st.selectbox("Select Dataset to Edit", ["Members.csv", "Competencies.csv", "Tasks.csv", "Planning.csv"])
-        
+
         current_df = load_github_csv(dataset_choice)
         if current_df is not None:
             st.markdown(f"Editing **{dataset_choice}**:")
@@ -996,20 +1001,20 @@ def get_member_task_staleness(member, task_name, h_df, target_date_str):
             # --- ENHANCEMENT: DATE SORTING FOR PLANNING.CSV ---
             display_df = current_df.copy()
             sort_direction = "Recent to Old (Vaovao mankamin'ny taloha)" # Default
-            
+
             if dataset_choice == "Planning.csv" and 'Date' in display_df.columns:
                 col_ctrl1, col_ctrl2 = st.columns([2, 1])
                 with col_ctrl1:
                     sort_direction = st.radio(
                         "Fandaminana ny Daty (Date Sorting Order):",
                         options=[
-                            "Recent to Old (Vaovao mankamin'ny taloha)", 
+                            "Recent to Old (Vaovao mankamin'ny taloha)",
                             "Old to Recent (Taloha mankamin'ny vaovao)"
                         ],
                         horizontal=True,
                         key="planning_sort_order"
                     )
-                
+
                 # Convert Date column temporarily for robust chronological sorting
                 display_df['__temp_date'] = pd.to_datetime(display_df['Date'], dayfirst=True, errors='coerce')
                 is_ascending = (sort_direction == "Old to Recent (Taloha mankamin'ny vaovao)")
@@ -1020,7 +1025,7 @@ def get_member_task_staleness(member, task_name, h_df, target_date_str):
             if st.button(f"💾 Save changes to {dataset_choice}"):
                 if dataset_choice == "Planning.csv":
                     edited_df = prune_planning_data(edited_df, max_rows=max_planning_rows)
-                    
+
                 csv_string = edited_df.to_csv(index=False)
                 with st.spinner(f"Pushing {dataset_choice} update to GitHub..."):
                     success = push_file_to_github(dataset_choice, csv_string, f"Manual CRUD update on {dataset_choice}")
@@ -1047,7 +1052,7 @@ def get_member_task_staleness(member, task_name, h_df, target_date_str):
 
             if len(unique_dates) > 0:
                 num_latest_to_show = st.slider("Number of latest Sabbath batches to display", min_value=1, max_value=5, value=3)
-                
+
                 today = date.today()
                 future_dates = [d for d in unique_dates if d >= today]
                 reference_date = future_dates[0] if future_dates else unique_dates[-1]
@@ -1058,7 +1063,7 @@ def get_member_task_staleness(member, task_name, h_df, target_date_str):
                 latest_dates_slice = sorted(list(set(latest_dates_slice)))
 
                 filtered_plan = valid_plan[valid_plan['parsed_date'].dt.date.isin(latest_dates_slice)].copy()
-                
+
                 if task_names:
                     task_cat = pd.CategoricalDtype(categories=task_names, ordered=True)
                     filtered_plan['TaskOrder'] = filtered_plan['NormalizedTask'].astype(task_cat)
@@ -1067,12 +1072,12 @@ def get_member_task_staleness(member, task_name, h_df, target_date_str):
                 display_df = filtered_plan.drop(columns=['parsed_date', 'CleanMember', 'CleanTask', 'NormalizedTask', 'TaskOrder'], errors='ignore')
 
                 st.info(f"Displaying schedule for the most recent {num_latest_to_show} Sabbath generation(s) + nearest coming reference Sabbath.")
-                
+
                 pivot_df = display_df.pivot(index='Task', columns='Date', values='AssignedMember')
-                
+
                 if task_names:
                     pivot_df = pivot_df.reindex([t for t in task_names if t in pivot_df.index])
-                
+
                 date_cols_ordered = [d.strftime('%d/%m/%Y') for d in latest_dates_slice]
                 existing_cols = [c for c in date_cols_ordered if c in pivot_df.columns]
                 pivot_df = pivot_df[existing_cols]
