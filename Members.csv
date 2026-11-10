@@ -1,7 +1,7 @@
 id,name,available,Youth,Elder
 4,R. Haja,False,False,False
 5,R. Raivo,True,False,False
-6,R. Herinirina,True,True,False
+6,R. Herinirina,False,True,False
 7,A. Rado,True,True,True
 8,M. Tsoa,True,True,False
 9,R. Andoniaina,True,True,False
@@ -42,7 +42,7 @@ id,name,available,Youth,Elder
 44,Xénophan,True,True,False
 45,Volatiana,False,False,False
 46,Ramaroson Liva,True,True,False
-47,R. Vololona,True,False,False
+47,R. Vololona,False,False,False
 48,R. Misedra,True,True,False
 49,Minosoa,True,True,False
 50,Kevin,True,True,False
